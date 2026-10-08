@@ -88,19 +88,21 @@ function normalizarTelefone(numero: string) {
   return numero.replace(/\D/g, "");
 }
 
-/*
- * IMPORTANTE:
- * O WhatsApp usa sempre o mesmo nome de destino.
- *
- * Não usamos "_blank".
- * Não usamos width/height.
- * Assim o Chrome trata o WhatsApp como uma única aba
- * e reutiliza o mesmo destino nas próximas mensagens.
- */
 const NOME_JANELA_WHATSAPP =
   "SPA_PET_AGROMINAS_WHATSAPP";
 
 let janelaWhatsApp: Window | null = null;
+
+function obterArtigoPet(sexo: string | null) {
+  const sexoNormalizado = (sexo || "")
+    .toLowerCase()
+    .trim();
+
+  return sexoNormalizado === "fêmea" ||
+    sexoNormalizado === "femea"
+    ? "a"
+    : "o";
+}
 
 function abrirWhatsApp(
   tipo: "lembrete" | "pronto",
@@ -119,23 +121,14 @@ function abrirWhatsApp(
     return;
   }
 
-  const sexoNormalizado = (sexo || "")
-    .toLowerCase()
-    .trim();
-
-  const artigo =
-    sexoNormalizado === "fêmea" ||
-    sexoNormalizado === "femea"
-      ? "a"
-      : "o";
+  const artigo = obterArtigoPet(sexo);
 
   const petComArtigo =
     artigo === "a"
       ? `a ${petNome}`
       : `o ${petNome}`;
 
-  const dataFormatada =
-    formatarDataLocal(data);
+  const dataFormatada = formatarDataLocal(data);
 
   let mensagem = "";
 
@@ -166,10 +159,6 @@ function abrirWhatsApp(
     "&text=" +
     encodeURIComponent(mensagem);
 
-  /*
-   * Se já existe uma aba/janela do WhatsApp aberta
-   * pelo sistema, usamos exatamente ela.
-   */
   if (
     janelaWhatsApp &&
     !janelaWhatsApp.closed
@@ -179,15 +168,72 @@ function abrirWhatsApp(
     return;
   }
 
-  /*
-   * Abre o WhatsApp usando um NOME FIXO.
-   *
-   * O nome é o que permite ao Chrome reutilizar
-   * o mesmo destino em vez de criar outro.
-   *
-   * Não usamos "_blank".
-   * Não usamos recursos de popup.
-   */
+  janelaWhatsApp = window.open(
+    url,
+    NOME_JANELA_WHATSAPP
+  );
+
+  if (!janelaWhatsApp) {
+    alert(
+      "O Chrome bloqueou a abertura do WhatsApp. Permita pop-ups para o SPA PET AGROMINAS."
+    );
+  }
+}
+
+function abrirWhatsAppGrupo(
+  numero: string,
+  tutorNome: string,
+  data: string,
+  horario: string,
+  itens: Array<{
+    petNome: string;
+    servicoNome: string;
+    sexo: string | null;
+  }>
+) {
+  const telefone = normalizarTelefone(numero);
+
+  if (!telefone) {
+    alert("Este tutor não possui WhatsApp cadastrado.");
+    return;
+  }
+
+  const dataFormatada = formatarDataLocal(data);
+
+  const listaPets = itens
+    .map(function (item) {
+      return (
+        `🐾 ${item.petNome}\n` +
+        `   ✂️ ${item.servicoNome}`
+      );
+    })
+    .join("\n\n");
+
+  const mensagem =
+    `🐾 Olá, ${tutorNome}! Tudo bem?\n\n` +
+    `Aqui é do SPA PET AGROMINAS. 💚\n\n` +
+    `Passando para lembrar dos agendamentos dos seus pets conosco. 🐶🐾\n\n` +
+    `📅 Data: ${dataFormatada}\n` +
+    `🕐 Horário: ${horario}\n\n` +
+    `${listaPets}\n\n` +
+    `Esperamos vocês! 😊\n\n` +
+    `Caso precise remarcar ou tenha alguma dúvida, estamos à disposição. 💚`;
+
+  const url =
+    "https://web.whatsapp.com/send/?phone=55" +
+    telefone +
+    "&text=" +
+    encodeURIComponent(mensagem);
+
+  if (
+    janelaWhatsApp &&
+    !janelaWhatsApp.closed
+  ) {
+    janelaWhatsApp.location.href = url;
+    janelaWhatsApp.focus();
+    return;
+  }
+
   janelaWhatsApp = window.open(
     url,
     NOME_JANELA_WHATSAPP
@@ -578,6 +624,525 @@ function imprimirComprovante(
 
       <div class="valor">
         ${valor}
+      </div>
+
+    </div>
+
+    <div class="status">
+      AGUARDANDO PAGAMENTO
+    </div>
+
+    <div class="rodape">
+
+      <div class="agradecimento">
+        🐾 Obrigado pela preferência!
+      </div>
+
+      <div>
+        SPA PET AGROMINAS
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+
+    window.onload = function () {
+      window.focus();
+      window.print();
+    };
+
+    window.onafterprint = function () {
+      window.close();
+    };
+
+  </script>
+
+</body>
+
+</html>
+  `);
+
+  janela.document.close();
+}
+
+/* =========================================================
+   IMPRESSÃO DE TODOS OS PETS DO MESMO TUTOR
+   ========================================================= */
+
+function imprimirComprovanteGrupo(
+  grupo: {
+    tutorNome: string;
+    horario: string;
+    data: string;
+    agendamentos: Agendamento[];
+  },
+  pets: Pet[],
+  obterNomeServico: (
+    agendamento: Agendamento
+  ) => string
+) {
+  const tutorNome =
+    grupo.tutorNome ||
+    "Tutor";
+
+  const data =
+    formatarDataLocal(
+      grupo.data
+    );
+
+  const horario =
+    grupo.horario ||
+    "08:00";
+
+  const total =
+    grupo.agendamentos.reduce(
+      function (
+        soma,
+        agendamento
+      ) {
+        return (
+          soma +
+          Number(
+            agendamento.valor_total ||
+              0
+          )
+        );
+      },
+      0
+    );
+
+  const petsHtml =
+    grupo.agendamentos
+      .map(function (agendamento) {
+        const pet =
+          pets.find(function (item) {
+            return (
+              item.id ===
+              agendamento.pet_id
+            );
+          });
+
+        const petNome =
+          agendamento.petNome ||
+          pet?.nome ||
+          "Pet";
+
+        const servicoNome =
+          obterNomeServico(
+            agendamento
+          );
+
+        const valor =
+          formatarValor(
+            agendamento.valor_total
+          );
+
+        const servicosRealizados =
+          agendamento.observacoes
+            ? agendamento.observacoes
+                .split("|")
+                .map(function (item) {
+                  return item.trim();
+                })
+                .filter(function (item) {
+                  return item.length > 0;
+                })
+            : [];
+
+        const listaServicos =
+          servicosRealizados.length >
+          0
+            ? servicosRealizados
+            : [servicoNome];
+
+        const servicosHtml =
+          listaServicos
+            .map(function (servico) {
+              return (
+                '<div class="servico-item">' +
+                '<span class="servico-bolinha">•</span>' +
+                "<span>" +
+                servico +
+                "</span>" +
+                "</div>"
+              );
+            })
+            .join("");
+
+        return `
+          <div class="pet-box">
+
+            <div class="pet-cabecalho">
+
+              <div class="pet-nome">
+                🐾 ${petNome}
+              </div>
+
+              <div class="pet-valor">
+                ${valor}
+              </div>
+
+            </div>
+
+            <div class="servicos-titulo">
+              SERVIÇO
+            </div>
+
+            ${servicosHtml}
+
+          </div>
+        `;
+      })
+      .join("");
+
+  const quantidadePets =
+    grupo.agendamentos.length;
+
+  const janela = window.open(
+    "",
+    "_blank",
+    "width=500,height=800"
+  );
+
+  if (!janela) {
+    alert(
+      "Não foi possível abrir a impressão. Verifique se o navegador bloqueou a janela."
+    );
+    return;
+  }
+
+  janela.document.write(`
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <title>
+    Comprovante - ${tutorNome}
+  </title>
+
+  <style>
+
+    @page {
+      size: 80mm auto;
+      margin: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 80mm;
+      background: #ffffff;
+      color: #111111;
+      font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+    }
+
+    body {
+      padding:
+        3mm
+        5mm
+        8mm
+        5mm;
+    }
+
+    .comprovante {
+      width: 100%;
+    }
+
+    .cabecalho {
+      text-align: center;
+      margin-bottom: 6px;
+    }
+
+    .icone {
+      font-size: 23px;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .nome {
+      font-size: 19px;
+      font-weight: 900;
+      letter-spacing: 0.4px;
+      line-height: 1.1;
+    }
+
+    .subtitulo {
+      margin-top: 3px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.8px;
+    }
+
+    .linha {
+      border-top:
+        1px dashed #444444;
+      margin:
+        8px 0;
+    }
+
+    .titulo {
+      text-align: center;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      margin:
+        6px 0;
+    }
+
+    .informacoes {
+      margin-top: 3px;
+    }
+
+    .campo {
+      margin:
+        7px 0;
+      font-size: 11px;
+      line-height: 1.35;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .campo-label {
+      font-weight: 800;
+    }
+
+    .campo-valor {
+      font-weight: 700;
+    }
+
+    .quantidade {
+      margin-top: 8px;
+      text-align: center;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+
+    .pet-box {
+      margin-top: 10px;
+      padding:
+        8px
+        8px
+        9px
+        8px;
+      border:
+        1px solid #d0d0d0;
+      border-radius: 5px;
+      page-break-inside: avoid;
+    }
+
+    .pet-cabecalho {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .pet-nome {
+      font-size: 12px;
+      font-weight: 900;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .pet-valor {
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .servicos-titulo {
+      font-size: 8px;
+      font-weight: 900;
+      letter-spacing: 0.8px;
+      margin-bottom: 4px;
+    }
+
+    .servico-item {
+      display: flex;
+      gap: 5px;
+      font-size: 10px;
+      line-height: 1.4;
+      font-weight: 700;
+      margin: 2px 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .servico-bolinha {
+      font-weight: 900;
+    }
+
+    .valor-box {
+      margin-top: 12px;
+      border:
+        1.5px solid #111111;
+      border-radius: 5px;
+      padding:
+        8px
+        6px
+        9px
+        6px;
+      text-align: center;
+    }
+
+    .valor-label {
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      margin-bottom: 3px;
+    }
+
+    .valor {
+      font-size: 22px;
+      font-weight: 900;
+      line-height: 1.1;
+    }
+
+    .status {
+      margin-top: 8px;
+      text-align: center;
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+    }
+
+    .rodape {
+      margin-top: 14px;
+      padding-top: 8px;
+      border-top:
+        1px dashed #444444;
+      text-align: center;
+      font-size: 8px;
+      line-height: 1.5;
+      color: #444444;
+    }
+
+    .agradecimento {
+      font-weight: 800;
+      color: #111111;
+      margin-bottom: 2px;
+    }
+
+    @media print {
+
+      html,
+      body {
+        width: 80mm;
+      }
+
+      body {
+        padding:
+          3mm
+          5mm
+          8mm
+          5mm;
+      }
+
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+  <div class="comprovante">
+
+    <div class="cabecalho">
+
+      <div class="icone">
+        🐾
+      </div>
+
+      <div class="nome">
+        SPA PET AGROMINAS
+      </div>
+
+      <div class="subtitulo">
+        BANHO E TOSA
+      </div>
+
+    </div>
+
+    <div class="linha"></div>
+
+    <div class="titulo">
+      COMPROVANTE DE ATENDIMENTO
+    </div>
+
+    <div class="linha"></div>
+
+    <div class="informacoes">
+
+      <div class="campo">
+        <span class="campo-label">
+          TUTOR -
+        </span>
+
+        <span class="campo-valor">
+          ${tutorNome}
+        </span>
+      </div>
+
+      <div class="campo">
+        <span class="campo-label">
+          DATA -
+        </span>
+
+        <span class="campo-valor">
+          ${data}
+        </span>
+      </div>
+
+      <div class="campo">
+        <span class="campo-label">
+          HORÁRIO -
+        </span>
+
+        <span class="campo-valor">
+          ${horario}
+        </span>
+      </div>
+
+    </div>
+
+    <div class="quantidade">
+
+      ${quantidadePets}
+      ${
+        quantidadePets === 1
+          ? "PET AGENDADO"
+          : "PETS AGENDADOS"
+      }
+
+    </div>
+
+    ${petsHtml}
+
+    <div class="valor-box">
+
+      <div class="valor-label">
+        VALOR TOTAL
+      </div>
+
+      <div class="valor">
+        ${formatarValor(total)}
       </div>
 
     </div>
@@ -1673,9 +2238,66 @@ export default function AgendaPage() {
     );
   }
 
-  function renderAgendamento(
+  type GrupoTutor = {
+    chave: string;
+    tutorNome: string;
+    whatsapp: string;
+    horario: string;
+    data: string;
+    agendamentos: Agendamento[];
+  };
+
+  function agruparPorTutor(
+    lista: Agendamento[]
+  ): GrupoTutor[] {
+    const grupos: GrupoTutor[] = [];
+
+    lista.forEach(function (agendamento) {
+      const chave =
+        (agendamento.tutorNome || "Tutor") +
+        "|" +
+        (agendamento.whatsapp || "") +
+        "|" +
+        (agendamento.data || "") +
+        "|" +
+        (agendamento.horario || "08:00");
+
+      const grupoExistente =
+        grupos.find(function (grupo) {
+          return grupo.chave === chave;
+        });
+
+      if (grupoExistente) {
+        grupoExistente.agendamentos.push(
+          agendamento
+        );
+      } else {
+        grupos.push({
+          chave,
+          tutorNome:
+            agendamento.tutorNome ||
+            "Tutor",
+          whatsapp:
+            agendamento.whatsapp ||
+            "",
+          horario:
+            agendamento.horario ||
+            "08:00",
+          data:
+            agendamento.data,
+          agendamentos: [
+            agendamento,
+          ],
+        });
+      }
+    });
+
+    return grupos;
+  }
+
+  function renderPetDoGrupo(
     agendamento: Agendamento
-  ): ReactNode {
+  ) {
     const concluido =
       estaConcluido(
         agendamento
@@ -1698,23 +2320,20 @@ export default function AgendaPage() {
 
     return (
       <div
-        key={
-          agendamento.id
-        }
-        className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+        key={agendamento.id}
+        className="rounded-xl border border-gray-200 bg-gray-50 p-4"
       >
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
 
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
 
-          <div className="flex items-center gap-4">
-
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-xl">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-lg shadow-sm">
               🐾
             </div>
 
             <div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
 
                 <h4 className="font-semibold text-gray-900">
                   {agendamento.petNome ||
@@ -1735,28 +2354,15 @@ export default function AgendaPage() {
 
               </div>
 
-              <p className="mt-1 text-sm text-gray-500">
-                {agendamento.tutorNome ||
-                  "Tutor"}
-              </p>
-
               <p className="mt-1 text-sm text-gray-600">
-                {agendamento.horario ||
-                  "08:00"}
-                {" • "}
                 {obterNomeServico(
                   agendamento
                 )}
+                {" • "}
+                {formatarValor(
+                  agendamento.valor_total
+                )}
               </p>
-
-              {agendamento.valor_total !==
-                null && (
-                <p className="mt-1 text-sm font-medium text-gray-700">
-                  {formatarValor(
-                    agendamento.valor_total
-                  )}
-                </p>
-              )}
 
               {pagamento && (
                 <p className="mt-1 text-xs text-gray-500">
@@ -1773,44 +2379,18 @@ export default function AgendaPage() {
 
             <button
               type="button"
-              onClick={
-                function () {
-                  imprimirComprovante(
-                    agendamento,
-                    pet,
-                    obterNomeServico(
-                      agendamento
-                    )
-                  );
-                }
-              }
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              🖨️ Imprimir
-            </button>
-
-            <button
-              type="button"
               onClick={function () {
-                abrirWhatsApp(
-                  "lembrete",
-                  agendamento.whatsapp || "",
-                  agendamento.petNome || "Pet",
-                  agendamento.tutorNome || "Tutor",
-                  agendamento.horario || "08:00",
-                  pet?.sexo || null,
+                imprimirComprovante(
+                  agendamento,
+                  pet,
                   obterNomeServico(
                     agendamento
-                  ),
-                  agendamento.data
+                  )
                 );
               }}
-              disabled={
-                !agendamento.whatsapp
-              }
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
-              📅 Lembrar agendamento
+              🖨️ Imprimir
             </button>
 
             {concluido && (
@@ -1841,14 +2421,12 @@ export default function AgendaPage() {
 
             <button
               type="button"
-              onClick={
-                function () {
-                  abrirEdicao(
-                    agendamento
-                  );
-                }
-              }
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              onClick={function () {
+                abrirEdicao(
+                  agendamento
+                );
+              }}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Editar
             </button>
@@ -1856,13 +2434,11 @@ export default function AgendaPage() {
             {!concluido ? (
               <button
                 type="button"
-                onClick={
-                  function () {
-                    abrirAtendimento(
-                      agendamento
-                    );
-                  }
-                }
+                onClick={function () {
+                  abrirAtendimento(
+                    agendamento
+                  );
+                }}
                 className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
               >
                 Registrar atendimento
@@ -1870,14 +2446,12 @@ export default function AgendaPage() {
             ) : (
               <button
                 type="button"
-                onClick={
-                  function () {
-                    abrirPagamento(
-                      agendamento
-                    );
-                  }
-                }
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                onClick={function () {
+                  abrirPagamento(
+                    agendamento
+                  );
+                }}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 💰 Registrar pagamento
               </button>
@@ -1885,13 +2459,11 @@ export default function AgendaPage() {
 
             <button
               type="button"
-              onClick={
-                function () {
-                  excluirAgendamento(
-                    agendamento
-                  );
-                }
-              }
+              onClick={function () {
+                excluirAgendamento(
+                  agendamento
+                );
+              }}
               className="rounded-lg px-3 py-2 text-sm font-medium text-gray-400 hover:bg-gray-100 hover:text-gray-700"
             >
               Excluir
@@ -1900,10 +2472,140 @@ export default function AgendaPage() {
           </div>
 
         </div>
+      </div>
+    );
+  }
+
+  function renderGrupoTutor(
+    grupo: GrupoTutor
+  ): ReactNode {
+    const itensWhatsApp =
+      grupo.agendamentos.map(
+        function (agendamento) {
+          const pet =
+            pets.find(
+              function (item) {
+                return (
+                  item.id ===
+                  agendamento.pet_id
+                );
+              }
+            );
+
+          return {
+            petNome:
+              agendamento.petNome ||
+              "Pet",
+            servicoNome:
+              obterNomeServico(
+                agendamento
+              ),
+            sexo:
+              pet?.sexo ||
+              null,
+          };
+        }
+      );
+
+    return (
+      <div
+        key={grupo.chave}
+        className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+      >
+
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
+          <div>
+
+            <div className="flex flex-wrap items-center gap-3">
+
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gray-100 text-xl">
+                👤
+              </div>
+
+              <div>
+
+                <h4 className="font-semibold text-gray-900">
+                  {grupo.tutorNome}
+                </h4>
+
+                <p className="text-sm text-gray-500">
+                  {grupo.horario}
+                  {" • "}
+                  {grupo.agendamentos.length}{" "}
+                  {grupo.agendamentos.length === 1
+                    ? "pet"
+                    : "pets"}
+                </p>
+
+              </div>
+
+            </div>
+
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+
+            {grupo.agendamentos.length > 1 && (
+              <button
+                type="button"
+                onClick={function () {
+                  imprimirComprovanteGrupo(
+                    grupo,
+                    pets,
+                    obterNomeServico
+                  );
+                }}
+                className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+              >
+                🖨️ Imprimir todos
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={function () {
+                abrirWhatsAppGrupo(
+                  grupo.whatsapp,
+                  grupo.tutorNome,
+                  grupo.data,
+                  grupo.horario,
+                  itensWhatsApp
+                );
+              }}
+              disabled={
+                !grupo.whatsapp
+              }
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              📅 Lembrar agendamento
+            </button>
+
+          </div>
+
+        </div>
+
+        <div className="mt-4 space-y-3">
+
+          {grupo.agendamentos.map(
+            renderPetDoGrupo
+          )}
+
+        </div>
 
       </div>
     );
   }
+
+  const gruposManha =
+    agruparPorTutor(
+      agendamentosManha
+    );
+
+  const gruposTarde =
+    agruparPorTutor(
+      agendamentosTarde
+    );
 
   const nomeMes =
     mesAtual.toLocaleDateString(
@@ -1939,11 +2641,9 @@ export default function AgendaPage() {
 
             <button
               type="button"
-              onClick={
-                function () {
-                  abrirNovoAgendamento();
-                }
-              }
+              onClick={function () {
+                abrirNovoAgendamento();
+              }}
               className="rounded-xl bg-gray-900 px-5 py-3 font-medium text-white hover:bg-gray-800"
             >
               + Novo agendamento
@@ -1959,11 +2659,9 @@ export default function AgendaPage() {
 
                 <button
                   type="button"
-                  onClick={
-                    function () {
-                      mudarMes(-1);
-                    }
-                  }
+                  onClick={function () {
+                    mudarMes(-1);
+                  }}
                   className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-gray-100"
                 >
                   ←
@@ -1975,11 +2673,9 @@ export default function AgendaPage() {
 
                 <button
                   type="button"
-                  onClick={
-                    function () {
-                      mudarMes(1);
-                    }
-                  }
+                  onClick={function () {
+                    mudarMes(1);
+                  }}
                   className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-gray-100"
                 >
                   →
@@ -2063,13 +2759,11 @@ export default function AgendaPage() {
                       <button
                         key={data}
                         type="button"
-                        onClick={
-                          function () {
-                            selecionarDia(
-                              dia
-                            );
-                          }
-                        }
+                        onClick={function () {
+                          selecionarDia(
+                            dia
+                          );
+                        }}
                         className={
                           "relative flex h-10 items-center justify-center rounded-lg text-sm " +
                           (selecionado
@@ -2196,7 +2890,9 @@ export default function AgendaPage() {
                         {
                           agendamentosManha.length
                         }{" "}
-                        pets
+                        {agendamentosManha.length === 1
+                          ? "pet"
+                          : "pets"}
                       </span>
 
                     </div>
@@ -2216,8 +2912,8 @@ export default function AgendaPage() {
 
                       ) : (
 
-                        agendamentosManha.map(
-                          renderAgendamento
+                        gruposManha.map(
+                          renderGrupoTutor
                         )
 
                       )}
@@ -2246,7 +2942,9 @@ export default function AgendaPage() {
                         {
                           agendamentosTarde.length
                         }{" "}
-                        pets
+                        {agendamentosTarde.length === 1
+                          ? "pet"
+                          : "pets"}
                       </span>
 
                     </div>
@@ -2266,8 +2964,8 @@ export default function AgendaPage() {
 
                       ) : (
 
-                        agendamentosTarde.map(
-                          renderAgendamento
+                        gruposTarde.map(
+                          renderGrupoTutor
                         )
 
                       )}
@@ -2334,15 +3032,13 @@ export default function AgendaPage() {
                   value={
                     petSelecionado
                   }
-                  onChange={
-                    function (
-                      event
-                    ) {
-                      setPetSelecionado(
-                        event.target.value
-                      );
-                    }
-                  }
+                  onChange={function (
+                    event
+                  ) {
+                    setPetSelecionado(
+                      event.target.value
+                    );
+                  }}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 >
 
@@ -2391,15 +3087,13 @@ export default function AgendaPage() {
                   value={
                     servicoSelecionado
                   }
-                  onChange={
-                    function (
-                      event
-                    ) {
-                      setServicoSelecionado(
-                        event.target.value
-                      );
-                    }
-                  }
+                  onChange={function (
+                    event
+                  ) {
+                    setServicoSelecionado(
+                      event.target.value
+                    );
+                  }}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 >
 
@@ -2446,15 +3140,13 @@ export default function AgendaPage() {
                   value={
                     valorAgendamento
                   }
-                  onChange={
-                    function (
-                      event
-                    ) {
-                      setValorAgendamento(
-                        event.target.value
-                      );
-                    }
-                  }
+                  onChange={function (
+                    event
+                  ) {
+                    setValorAgendamento(
+                      event.target.value
+                    );
+                  }}
                   placeholder="0,00"
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 />
@@ -2472,15 +3164,13 @@ export default function AgendaPage() {
                   value={
                     dataAgendamento
                   }
-                  onChange={
-                    function (
-                      event
-                    ) {
-                      setDataAgendamento(
-                        event.target.value
-                      );
-                    }
-                  }
+                  onChange={function (
+                    event
+                  ) {
+                    setDataAgendamento(
+                      event.target.value
+                    );
+                  }}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 />
 
@@ -2496,15 +3186,13 @@ export default function AgendaPage() {
                   value={
                     horarioAgendamento
                   }
-                  onChange={
-                    function (
-                      event
-                    ) {
-                      setHorarioAgendamento(
-                        event.target.value
-                      );
-                    }
-                  }
+                  onChange={function (
+                    event
+                  ) {
+                    setHorarioAgendamento(
+                      event.target.value
+                    );
+                  }}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 >
 
@@ -2530,15 +3218,13 @@ export default function AgendaPage() {
                   value={
                     observacoes
                   }
-                  onChange={
-                    function (
-                      event
-                    ) {
-                      setObservacoes(
-                        event.target.value
-                      );
-                    }
-                  }
+                  onChange={function (
+                    event
+                  ) {
+                    setObservacoes(
+                      event.target.value
+                    );
+                  }}
                   rows={3}
                   placeholder="Observações do agendamento"
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
@@ -2612,13 +3298,11 @@ export default function AgendaPage() {
 
                 <button
                   type="button"
-                  onClick={
-                    function () {
-                      setModalAtendimento(
-                        false
-                      );
-                    }
-                  }
+                  onClick={function () {
+                    setModalAtendimento(
+                      false
+                    );
+                  }}
                   className="text-2xl text-gray-400 hover:text-gray-700"
                 >
                   ×
@@ -2668,15 +3352,13 @@ export default function AgendaPage() {
                     value={
                       valorAtendimento
                     }
-                    onChange={
-                      function (
-                        event
-                      ) {
-                        setValorAtendimento(
-                          event.target.value
-                        );
-                      }
-                    }
+                    onChange={function (
+                      event
+                    ) {
+                      setValorAtendimento(
+                        event.target.value
+                      );
+                    }}
                     placeholder="0,00"
                     className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                   />
@@ -2693,15 +3375,13 @@ export default function AgendaPage() {
                     value={
                       formaPagamento
                     }
-                    onChange={
-                      function (
-                        event
-                      ) {
-                        setFormaPagamento(
-                          event.target.value
-                        );
-                      }
-                    }
+                    onChange={function (
+                      event
+                    ) {
+                      setFormaPagamento(
+                        event.target.value
+                      );
+                    }}
                     className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                   >
 
@@ -2739,13 +3419,11 @@ export default function AgendaPage() {
 
                 <button
                   type="button"
-                  onClick={
-                    function () {
-                      setModalAtendimento(
-                        false
-                      );
-                    }
-                  }
+                  onClick={function () {
+                    setModalAtendimento(
+                      false
+                    );
+                  }}
                   className="rounded-xl border border-gray-300 px-5 py-3 font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Cancelar
@@ -2799,13 +3477,11 @@ export default function AgendaPage() {
 
                 <button
                   type="button"
-                  onClick={
-                    function () {
-                      setModalPagamento(
-                        false
-                      );
-                    }
-                  }
+                  onClick={function () {
+                    setModalPagamento(
+                      false
+                    );
+                  }}
                   className="text-2xl text-gray-400 hover:text-gray-700"
                 >
                   ×
@@ -2823,15 +3499,13 @@ export default function AgendaPage() {
                   value={
                     formaPagamento
                   }
-                  onChange={
-                    function (
-                      event
-                    ) {
-                      setFormaPagamento(
-                        event.target.value
-                      );
-                    }
-                  }
+                  onChange={function (
+                    event
+                  ) {
+                    setFormaPagamento(
+                      event.target.value
+                    );
+                  }}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 >
 
@@ -2867,13 +3541,11 @@ export default function AgendaPage() {
 
                 <button
                   type="button"
-                  onClick={
-                    function () {
-                      setModalPagamento(
-                        false
-                      );
-                    }
-                  }
+                  onClick={function () {
+                    setModalPagamento(
+                      false
+                    );
+                  }}
                   className="rounded-xl border border-gray-300 px-5 py-3 font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Cancelar
