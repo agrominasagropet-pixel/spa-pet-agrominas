@@ -48,6 +48,11 @@ type Agendamento = {
   observacoes: string | null;
   valor_total: number | null;
   servico_nome: string | null;
+  plano: string | null;
+  numero_banho: number | null;
+  ciclo: number | null;
+  pagamento_status: string | null;
+  forma_pagamento_plano: string | null;
   petNome?: string;
   tutorNome?: string;
   whatsapp?: string;
@@ -102,6 +107,34 @@ function obterArtigoPet(sexo: string | null) {
     sexoNormalizado === "femea"
     ? "a"
     : "o";
+}
+
+/* =========================================================
+   IDENTIFICAÇÃO DO BANHO
+   ========================================================= */
+
+function obterIdentificacaoBanho(
+  agendamento: Agendamento
+) {
+  if (!agendamento.numero_banho) {
+    return "";
+  }
+
+  const numero = agendamento.numero_banho;
+
+  const ordinal = `${numero}º`;
+
+  const plano = agendamento.plano
+    ? ` • ${agendamento.plano}`
+    : "";
+
+  const ciclo =
+    agendamento.ciclo &&
+    agendamento.ciclo > 1
+      ? ` • Ciclo ${agendamento.ciclo}`
+      : "";
+
+  return `${ordinal} banho${plano}${ciclo}`;
 }
 
 function abrirWhatsApp(
@@ -246,6 +279,10 @@ function abrirWhatsAppGrupo(
   }
 }
 
+/* =========================================================
+   IMPRESSÃO INDIVIDUAL
+   ========================================================= */
+
 function imprimirComprovante(
   agendamento: Agendamento,
   pet: Pet | undefined,
@@ -273,6 +310,11 @@ function imprimirComprovante(
   const valor =
     formatarValor(
       agendamento.valor_total
+    );
+
+  const identificacaoBanho =
+    obterIdentificacaoBanho(
+      agendamento
     );
 
   const servicosRealizados =
@@ -426,6 +468,30 @@ function imprimirComprovante(
 
     .campo-valor {
       font-weight: 700;
+    }
+
+    .banho-box {
+      margin-top: 9px;
+      padding:
+        7px
+        8px;
+      border:
+        1px solid #d0d0d0;
+      border-radius: 5px;
+      text-align: center;
+      background: #f7f7f7;
+    }
+
+    .banho-label {
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      margin-bottom: 3px;
+    }
+
+    .banho-valor {
+      font-size: 12px;
+      font-weight: 900;
     }
 
     .servicos-box {
@@ -606,6 +672,24 @@ function imprimirComprovante(
 
     </div>
 
+    ${
+      identificacaoBanho
+        ? `
+    <div class="banho-box">
+
+      <div class="banho-label">
+        PLANO / BANHO
+      </div>
+
+      <div class="banho-valor">
+        ${identificacaoBanho}
+      </div>
+
+    </div>
+    `
+        : ""
+    }
+
     <div class="servicos-box">
 
       <div class="servicos-titulo">
@@ -739,6 +823,11 @@ function imprimirComprovanteGrupo(
             agendamento.valor_total
           );
 
+        const identificacaoBanho =
+          obterIdentificacaoBanho(
+            agendamento
+          );
+
         const servicosRealizados =
           agendamento.observacoes
             ? agendamento.observacoes
@@ -785,6 +874,16 @@ function imprimirComprovanteGrupo(
               </div>
 
             </div>
+
+            ${
+              identificacaoBanho
+                ? `
+            <div class="banho">
+              🛁 ${identificacaoBanho}
+            </div>
+            `
+                : ""
+            }
 
             <div class="servicos-titulo">
               SERVIÇO
@@ -964,6 +1063,14 @@ function imprimirComprovanteGrupo(
       font-size: 11px;
       font-weight: 900;
       white-space: nowrap;
+    }
+
+    .banho {
+      margin:
+        2px 0
+        7px 0;
+      font-size: 10px;
+      font-weight: 900;
     }
 
     .servicos-titulo {
@@ -1288,7 +1395,7 @@ export default function AgendaPage() {
       supabase
         .from("agendamentos")
         .select(
-          "id, pet_id, servico_id, data, horario, status, observacoes, valor_total, servico_nome"
+          "id, pet_id, servico_id, data, horario, status, observacoes, valor_total, servico_nome, plano, numero_banho, ciclo, pagamento_status, forma_pagamento_plano"
         )
         .order("data")
         .order("horario"),
@@ -2318,6 +2425,11 @@ export default function AgendaPage() {
         }
       );
 
+    const identificacaoBanho =
+      obterIdentificacaoBanho(
+        agendamento
+      );
+
     return (
       <div
         key={agendamento.id}
@@ -2353,6 +2465,12 @@ export default function AgendaPage() {
                 </span>
 
               </div>
+
+              {identificacaoBanho && (
+                <p className="mt-1 text-sm font-bold text-gray-900">
+                  🛁 {identificacaoBanho}
+                </p>
+              )}
 
               <p className="mt-1 text-sm text-gray-600">
                 {obterNomeServico(
@@ -3294,6 +3412,17 @@ export default function AgendaPage() {
                     )}
                   </p>
 
+                  {obterIdentificacaoBanho(
+                    agendamentoSelecionado
+                  ) && (
+                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                      🛁{" "}
+                      {obterIdentificacaoBanho(
+                        agendamentoSelecionado
+                      )}
+                    </p>
+                  )}
+
                 </div>
 
                 <button
@@ -3472,6 +3601,17 @@ export default function AgendaPage() {
                       agendamentoSelecionado.petNome
                     }
                   </p>
+
+                  {obterIdentificacaoBanho(
+                    agendamentoSelecionado
+                  ) && (
+                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                      🛁{" "}
+                      {obterIdentificacaoBanho(
+                        agendamentoSelecionado
+                      )}
+                    </p>
+                  )}
 
                 </div>
 
