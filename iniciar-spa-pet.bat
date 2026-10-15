@@ -1,12 +1,8 @@
+
 @echo off
-cd /d C:\Projetos\agrominas
+cd /d "C:\Projetos\agrominas"
 
-start "" /b npm run dev
+REM Se o sistema ja estiver ativo, abre imediatamente
+powershell -NoProfile -WindowStyle Hidden -Command "foreach ($p in @(3000,3001)) { try { $c = [System.Net.Sockets.TcpClient]::new(); $c.Connect('localhost',$p); $c.Close(); Start-Process ('http://localhost:' + $p); exit } catch {} }; Start-Process 'http://localhost:3000'; Start-Process 'cmd.exe' -ArgumentList '/c','cd /d C:\Projetos\agrominas && npm run dev' -WindowStyle Hidden"
 
-:aguardar
-timeout /t 1 /nobreak >nul
-powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://localhost:3000' -UseBasicParsing -TimeoutSec 1; if ($r.StatusCode -eq 200) { exit 0 } } catch { exit 1 }"
-if errorlevel 1 goto aguardar
-
-start "" http://localhost:3000
 exit
