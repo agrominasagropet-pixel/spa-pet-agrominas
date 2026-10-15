@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import MenuLateral from "@/app/components/MenuLateral";
 import { supabase } from "@/lib/supabase";
 
@@ -56,6 +57,11 @@ const configuracaoInicial: Configuracoes = {
 };
 
 export default function ConfiguracoesPage() {
+  const router = useRouter();
+  const [autorizado, setAutorizado] = useState(false);
+  const [verificandoAcesso, setVerificandoAcesso] = useState(true);
+  const [erroCarregamento, setErroCarregamento] = useState("");
+  const [salvandoServico, setSalvandoServico] = useState(false);
   const [config, setConfig] =
     useState<Configuracoes>(configuracaoInicial);
 
@@ -80,47 +86,56 @@ export default function ConfiguracoesPage() {
   });
 
   useEffect(() => {
-    carregarDados();
-  }, []);
+    let ativo = true;
+    async function verificarAcesso() {
+      try {
+        const { data: { user }, error: erroSessao } = await supabase.auth.getUser();
+        if (erroSessao || !user) {
+          router.replace("/login");
+          return;
+        }
+        const { data: perfil, error: erroPerfil } = await supabase
+          .from("perfis")
+          .select("perfil")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (erroPerfil || perfil?.perfil !== "admin") {
+          router.replace("/");
+          return;
+        }
+        if (!ativo) return;
+        setAutorizado(true);
+        await carregarDados();
+      } catch {
+        router.replace("/login");
+      } finally {
+        if (ativo) setVerificandoAcesso(false);
+      }
+    }
+    void verificarAcesso();
+    return () => { ativo = false; };
+  }, [router]);
 
   async function carregarDados() {
     setCarregando(true);
-
-    const { data: configuracao } = await supabase
-      .from("configuracoes")
-      .select("*")
-      .order("id", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (configuracao) {
-      setConfig({
-        ...configuracaoInicial,
-        ...configuracao,
-      });
+    setErroCarregamento("");
+    try {
+      const [resultadoConfig, resultadoServicos, resultadoPerfis] = await Promise.all([
+        supabase.from("configuracoes").select("*").order("id", { ascending: true }).limit(1).maybeSingle(),
+        supabase.from("servicos").select("id, nome, descricao, preco, duracao_minutos, ativo").order("nome", { ascending: true }),
+        supabase.from("perfis").select("id, nome, perfil").order("nome", { ascending: true }),
+      ]);
+      if (resultadoConfig.error) throw resultadoConfig.error;
+      if (resultadoServicos.error) throw resultadoServicos.error;
+      if (resultadoPerfis.error) throw resultadoPerfis.error;
+      if (resultadoConfig.data) setConfig({ ...configuracaoInicial, ...resultadoConfig.data });
+      setServicos((resultadoServicos.data || []) as Servico[]);
+      setPerfis((resultadoPerfis.data || []) as Perfil[]);
+    } catch (erro) {
+      setErroCarregamento(erro instanceof Error ? erro.message : "Falha ao carregar os dados.");
+    } finally {
+      setCarregando(false);
     }
-
-    const { data: servicosData } = await supabase
-      .from("servicos")
-      .select(
-        "id, nome, descricao, preco, duracao_minutos, ativo"
-      )
-      .order("nome", { ascending: true });
-
-    if (servicosData) {
-      setServicos(servicosData as Servico[]);
-    }
-
-    const { data: perfisData } = await supabase
-      .from("perfis")
-      .select("id, nome, perfil")
-      .order("nome", { ascending: true });
-
-    if (perfisData) {
-      setPerfis(perfisData as Perfil[]);
-    }
-
-    setCarregando(false);
   }
 
   function atualizarCampo(
@@ -171,6 +186,7 @@ export default function ConfiguracoesPage() {
     const cep = config.cep.replace(/\D/g, "");
 
     if (cep.length !== 8) {
+      setMensagem("Informe um CEP com 8 números.");
       return;
     }
 
@@ -181,8 +197,9 @@ export default function ConfiguracoesPage() {
         `https://viacep.com.br/ws/${cep}/json/`
       );
 
+      if (!resposta.ok) throw new Error("Serviço de CEP indisponível.");
       const dados = await resposta.json();
-
+      if (dados.erro) { setMensagem("CEP não encontrado."); return; }
       if (!dados.erro) {
         setConfig((atual) => ({
           ...atual,
@@ -193,13 +210,23 @@ export default function ConfiguracoesPage() {
         }));
       }
     } catch {
-      // Mantém a tela funcionando mesmo se o ViaCEP estiver indisponível.
+      setMensagem("Não foi possível consultar o CEP. Preencha o endereço manualmente.");
     } finally {
       setBuscandoCep(false);
     }
   }
 
   async function salvarConfiguracoes() {
+    if (!autorizado || salvando) return;
+    if (!config.nome_estabelecimento.trim()) {
+      setMensagem("Informe o nome do estabelecimento.");
+      return;
+    }
+    const { horario_manha_inicio: mi, horario_manha_fim: mf, horario_tarde_inicio: ti, horario_tarde_fim: tf } = config;
+    if (!mi || !mf || !ti || !tf || mi >= mf || mf > ti || ti >= tf) {
+      setMensagem("Confira os horários: início e fim dos turnos precisam estar em ordem, sem sobreposição.");
+      return;
+    }
     setSalvando(true);
     setMensagem("");
 
@@ -248,9 +275,7 @@ export default function ConfiguracoesPage() {
     }
 
     if (erro) {
-      setMensagem(
-        "Não foi possível salvar as configurações."
-      );
+      setMensagem(`Não foi possível salvar as configurações: ${erro.message}`);
       setSalvando(false);
       return;
     }
@@ -294,6 +319,7 @@ export default function ConfiguracoesPage() {
   }
 
   async function salvarServico() {
+    if (!autorizado || salvandoServico) return;
     if (!servicoForm.nome.trim()) {
       alert("Informe o nome do serviço.");
       return;
@@ -307,12 +333,12 @@ export default function ConfiguracoesPage() {
       servicoForm.duracao_minutos
     );
 
-    if (Number.isNaN(preco) || preco < 0) {
+    if (!servicoForm.preco.trim() || !Number.isFinite(preco) || preco < 0) {
       alert("Informe um preço válido.");
       return;
     }
 
-    if (Number.isNaN(duracao) || duracao <= 0) {
+    if (!servicoForm.duracao_minutos.trim() || !Number.isInteger(duracao) || duracao <= 0) {
       alert("Informe uma duração válida.");
       return;
     }
@@ -325,32 +351,27 @@ export default function ConfiguracoesPage() {
       ativo: servicoForm.ativo,
     };
 
-    if (servicoEditando) {
-      const { error } = await supabase
-        .from("servicos")
-        .update(dados)
-        .eq("id", servicoEditando.id);
-
-      if (error) {
-        alert("Não foi possível atualizar o serviço.");
-        return;
+    setSalvandoServico(true);
+    try {
+      if (servicoEditando) {
+        const { error } = await supabase.from("servicos").update(dados).eq("id", servicoEditando.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("servicos").insert(dados);
+        if (error) throw error;
       }
-    } else {
-      const { error } = await supabase
-        .from("servicos")
-        .insert(dados);
-
-      if (error) {
-        alert("Não foi possível cadastrar o serviço.");
-        return;
-      }
+      setModalServico(false);
+      setMensagem("Serviço salvo com sucesso.");
+      await carregarDados();
+    } catch (erro) {
+      alert(`Não foi possível salvar o serviço: ${erro instanceof Error ? erro.message : "Erro desconhecido"}`);
+    } finally {
+      setSalvandoServico(false);
     }
-
-    setModalServico(false);
-    await carregarDados();
   }
 
   async function alternarServico(servico: Servico) {
+    if (!autorizado) return;
     const { error } = await supabase
       .from("servicos")
       .update({
@@ -394,7 +415,7 @@ export default function ConfiguracoesPage() {
     return `${horas}h ${resto}min`;
   }
 
-  if (carregando) {
+  if (verificandoAcesso || !autorizado || carregando) {
     return (
       <div className="min-h-screen bg-slate-50">
         <MenuLateral />
@@ -405,7 +426,7 @@ export default function ConfiguracoesPage() {
               <div className="text-5xl">🐾</div>
 
               <p className="mt-4 text-sm text-slate-500">
-                Carregando configurações...
+                {verificandoAcesso ? "Verificando acesso..." : !autorizado ? "Acesso restrito à administração." : "Carregando configurações..."}
               </p>
             </div>
           </div>
@@ -1011,7 +1032,7 @@ export default function ConfiguracoesPage() {
       {/* MODAL SERVIÇO */}
       {modalServico && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-label="Cadastro de serviço" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
               <div>
                 <h2 className="text-lg font-bold text-slate-800">
@@ -1153,6 +1174,7 @@ export default function ConfiguracoesPage() {
               <button
                 type="button"
                 onClick={salvarServico}
+                disabled={salvandoServico}
                 className="rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
               >
                 {servicoEditando

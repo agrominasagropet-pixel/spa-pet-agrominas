@@ -42,6 +42,8 @@ type Pet = {
   observacoes: string;
   servicos: ServicosPet;
   plano?: PlanoResumo | null;
+  agendamentosFuturos: number;
+  retiradoDaAgenda: boolean;
 };
 
 type Cliente = {
@@ -175,6 +177,8 @@ function criarPet(id: string): Pet {
       formaPagamentoPlano: "",
     },
     plano: null,
+    agendamentosFuturos: 0,
+    retiradoDaAgenda: false,
   };
 }
 
@@ -223,6 +227,8 @@ function converterPetDoBanco(pet: any): Pet {
       formaPagamentoPlano: "",
     },
     plano: null,
+    agendamentosFuturos: 0,
+    retiradoDaAgenda: false,
   };
 }
 
@@ -439,6 +445,10 @@ function statusConcluido(
   );
 }
 
+function statusCancelado(status: string | null | undefined) {
+  return String(status || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() === "cancelado";
+}
+
 function criarResumoPlano(
   pet: Pet,
   agendamentos: AgendamentoBanco[]
@@ -507,10 +517,11 @@ function criarResumoPlano(
       )
     );
 
-  const totalBanhos =
-    quantidadeBanhosPorCiclo(
-      pet.servicos.frequencia
-    );
+  const frequenciaCiclo = (itensCiclo[0]?.plano === "Mensal" || itensCiclo[0]?.plano === "Quinzenal" || itensCiclo[0]?.plano === "Avulso")
+    ? itensCiclo[0].plano as Frequencia
+    : pet.servicos.frequencia;
+
+  const totalBanhos = quantidadeBanhosPorCiclo(frequenciaCiclo);
 
   const banhosConcluidos =
     itensCiclo.filter((item) =>
@@ -518,7 +529,7 @@ function criarResumoPlano(
     ).length;
 
   const banhosRestantes = Math.max(
-    totalBanhos - banhosConcluidos,
+    itensCiclo.filter((item) => !statusConcluido(item.status) && !statusCancelado(item.status)).length,
     0
   );
 
@@ -579,7 +590,8 @@ function criarResumoPlano(
       pet.servicos.frequencia !==
         "Avulso" &&
       (cicloFinalizado ||
-        cicloVencido),
+        cicloVencido ||
+        itensCiclo.every((item) => statusConcluido(item.status) || statusCancelado(item.status))),
   };
 }
 
@@ -696,8 +708,10 @@ export default function ClientesPetsPage() {
     setRenovandoPetId,
   ] = useState<string | null>(null);
 
-  const [
-    pagandoPetId,
+  const [retirandoPetId, setRetirandoPetId] = useState<string | null>(null);
+  const [mostrarTodos, setMostrarTodos] = useState(false);
+
+  const [pagandoPetId,
     setPagandoPetId,
   ] = useState<string | null>(null);
 
@@ -850,9 +864,16 @@ export default function ClientesPetsPage() {
                       agendamentos
                     );
 
-                  return {
-                    ...pet,
-                    plano,
+                   const agendamentosDoPet = agendamentos.filter((a) => String(a.pet_id) === String(pet.id));
+                   const hoje = hojeISO();
+                   const agendamentosFuturos = agendamentosDoPet.filter((a) => a.data >= hoje && !statusCancelado(a.status) && !statusConcluido(a.status)).length;
+                   const retiradoDaAgenda = agendamentosFuturos === 0 && agendamentosDoPet.some((a) => statusCancelado(a.status));
+
+                   return {
+                     ...pet,
+                     plano,
+                     agendamentosFuturos,
+                     retiradoDaAgenda,
                     servicos: {
                       ...pet.servicos,
                       pagamentoPlano:
@@ -1937,6 +1958,50 @@ export default function ClientesPetsPage() {
     );
   }
 
+  async function retirarPetDaAgenda(cliente: Cliente, pet: Pet) {
+    if (retirandoPetId) return;
+    const confirmou = window.confirm(
+      `Retirar ${pet.nome} da agenda?\n\nTodos os agendamentos de hoje em diante que ainda não foram concluídos serão CANCELADOS.\n\nO cadastro, os banhos realizados, os pagamentos e o histórico serão mantidos.`
+    );
+    if (!confirmou) return;
+
+    setRetirandoPetId(pet.id);
+    try {
+      // Consulta os registros no momento da ação, evitando cancelar dados desatualizados.
+      const { data, error: erroBusca } = await supabase
+        .from("agendamentos")
+        .select("id,data,status")
+        .eq("pet_id", pet.id)
+        .gte("data", hojeISO());
+      if (erroBusca) throw erroBusca;
+
+      const ids = (data || [])
+        .filter((item: any) => !statusCancelado(item.status) && !statusConcluido(item.status))
+        .map((item: any) => item.id);
+
+      if (ids.length === 0) {
+        alert("Este pet não possui agendamentos futuros pendentes para cancelar.");
+        await recarregarESelecionarCliente(cliente.id);
+        return;
+      }
+
+      const { error } = await supabase
+        .from("agendamentos")
+        .update({ status: "Cancelado" })
+        .in("id", ids)
+        .eq("pet_id", pet.id);
+      if (error) throw error;
+
+      await recarregarESelecionarCliente(cliente.id);
+      alert(`${ids.length} agendamento(s) de ${pet.nome} cancelado(s). O cadastro e o histórico foram preservados.`);
+    } catch (error: any) {
+      console.error("ERRO AO RETIRAR PET DA AGENDA:", error);
+      alert(`Não foi possível retirar o pet da agenda: ${error?.message || "erro desconhecido"}`);
+    } finally {
+      setRetirandoPetId(null);
+    }
+  }
+
   function abrirRenovacao(
     cliente: Cliente,
     pet: Pet
@@ -2329,13 +2394,9 @@ export default function ClientesPetsPage() {
       busca,
     ]);
 
-  const clientesVisiveis =
-    busca.trim()
-      ? clientesFiltrados
-      : clientesFiltrados.slice(
-          0,
-          8
-        );
+  const clientesVisiveis = busca.trim() || mostrarTodos
+    ? clientesFiltrados
+    : clientesFiltrados.slice(0, 8);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -2348,7 +2409,7 @@ export default function ClientesPetsPage() {
           <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 lg:px-8">
             <div>
               <p className="text-sm font-semibold text-emerald-600">
-                SPA PET AGROMINAS
+                AGROMINAS
               </p>
 
               <h1 className="mt-1 text-2xl font-bold text-slate-900">
@@ -2577,6 +2638,9 @@ export default function ClientesPetsPage() {
                                 </p>
                               </div>
 
+                              {pet.retiradoDaAgenda && (
+                                <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Sem agendamentos futuros • cadastro preservado</div>
+                              )}
                               {pet.plano && (
                                 <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3">
                                   <div>
@@ -2654,6 +2718,14 @@ export default function ClientesPetsPage() {
             </div>
           )}
         </div>
+          {!busca.trim() && clientesFiltrados.length > 8 && (
+            <div className="mx-auto max-w-7xl px-5 pb-8 text-center lg:px-8">
+              <button type="button" onClick={() => setMostrarTodos((atual) => !atual)}
+                className="rounded-xl border border-emerald-300 bg-white px-5 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50">
+                {mostrarTodos ? "Mostrar apenas 8 clientes" : `Ver todos os ${clientesFiltrados.length} clientes`}
+              </button>
+            </div>
+          )}
       </main>
 
       {/* ========================================================= */}
@@ -2666,7 +2738,7 @@ export default function ClientesPetsPage() {
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
               <div>
                 <p className="text-sm font-semibold text-emerald-600">
-                  SPA PET AGROMINAS
+                  AGROMINAS
                 </p>
 
                 <h2 className="text-xl font-bold text-slate-900">
@@ -3237,11 +3309,7 @@ export default function ClientesPetsPage() {
                         </div>
 
                         <div className="grid gap-3 md:grid-cols-3">
-                          {[
-                            "Avulso",
-                            "Quinzenal",
-                            "Mensal",
-                          ].map(
+                          {(["Avulso", "Quinzenal", "Mensal"] as Frequencia[]).map(
                             (
                               frequencia: Frequencia
                             ) => (
@@ -3726,6 +3794,31 @@ export default function ClientesPetsPage() {
                         </div>
                       </div>
 
+                       <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                         <div className="min-w-0 flex-1">
+                           <p className="text-sm font-bold text-slate-800">
+                             {pet.agendamentosFuturos > 0
+                               ? `${pet.agendamentosFuturos} agendamento(s) futuro(s)`
+                               : "Sem agendamentos futuros"}
+                           </p>
+                           <p className="mt-1 text-xs text-slate-500">
+                             Retirar da agenda não exclui o pet, o cliente ou os pagamentos.
+                           </p>
+                         </div>
+                         {pet.agendamentosFuturos > 0 ? (
+                           <button type="button" onClick={() => retirarPetDaAgenda(clienteSelecionado, pet)}
+                             disabled={!!retirandoPetId}
+                             className="rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-bold text-amber-800 hover:bg-amber-50 disabled:opacity-50">
+                             {retirandoPetId === pet.id ? "Cancelando..." : "Retirar pet da agenda"}
+                           </button>
+                         ) : (
+                           <button type="button" onClick={() => abrirRenovacao(clienteSelecionado, pet)}
+                             className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
+                             Agendar novamente
+                           </button>
+                         )}
+                       </div>
+
                       <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
                         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
                           <div>
@@ -3746,7 +3839,7 @@ export default function ClientesPetsPage() {
                             </p>
                           </div>
 
-                          {pet.plano &&
+                          {pet.plano && pet.agendamentosFuturos > 0 &&
                             pet.plano
                               .renovacaoDisponivel && (
                               <button
@@ -4168,9 +4261,7 @@ export default function ClientesPetsPage() {
 
             <div className="flex flex-wrap justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
               <button
-                onClick={
-                  excluirCliente
-                }
+                onClick={() => alert("O cadastro deve ser preservado. Para retirar um pet, use o botão Retirar pet da agenda.")}
                 disabled={
                   excluindo
                 }
@@ -4178,7 +4269,7 @@ export default function ClientesPetsPage() {
               >
                 {excluindo
                   ? "Excluindo..."
-                  : "Excluir cadastro"}
+                  : "Cadastro preservado"}
               </button>
 
               <div className="flex gap-2">
@@ -4225,7 +4316,7 @@ export default function ClientesPetsPage() {
           <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
             <div className="border-b border-slate-200 px-6 py-5">
               <p className="text-sm font-semibold text-emerald-600">
-                SPA PET AGROMINAS
+                AGROMINAS
               </p>
 
               <h2 className="mt-1 text-xl font-bold text-slate-900">
@@ -4244,11 +4335,7 @@ export default function ClientesPetsPage() {
                 </label>
 
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  {[
-                    "Avulso",
-                    "Quinzenal",
-                    "Mensal",
-                  ].map(
+                  {(["Avulso", "Quinzenal", "Mensal"] as Frequencia[]).map(
                     (
                       frequencia: Frequencia
                     ) => (
