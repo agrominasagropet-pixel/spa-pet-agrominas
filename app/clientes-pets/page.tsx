@@ -1266,8 +1266,13 @@ export default function ClientesPetsPage() {
             valorFinal,
 
           servico_nome:
-            [pet.servicos.banhoTosa, ...pet.servicos.tosas, ...pet.servicos.adicionais]
-              .filter(Boolean).join(" + ") || null,
+            [
+              index > 0 && frequencia !== "Avulso" &&
+              /banho\s*(?:\+|com)\s*tosa\s*higi[eê]nica/i.test(pet.servicos.banhoTosa)
+                ? "Banho" : pet.servicos.banhoTosa,
+              ...pet.servicos.tosas,
+              ...pet.servicos.adicionais,
+            ].filter(Boolean).join(" + ") || null,
 
           plano:
             frequencia,

@@ -157,6 +157,18 @@ function obterArtigoPet(sexo: string | null) {
   return ["fêmea", "femea", "f"].includes(valor) ? "a" : "o";
 }
 
+function ajustarServicoPorBanho(
+  servico: string | null | undefined,
+  plano: string | null | undefined,
+  numeroBanho: number | null | undefined
+) {
+  const nome = (servico || "").trim();
+  if ((plano === "Mensal" || plano === "Quinzenal") && Number(numeroBanho) > 1) {
+    return nome.replace(/banho\s*(?:\+|com)\s*tosa\s*higi[eê]nica/gi, "Banho");
+  }
+  return nome;
+}
+
 function obterIdentificacaoBanho(agendamento: Agendamento) {
   if (!agendamento.numero_banho) return "";
 
@@ -449,7 +461,8 @@ function imprimirComprovanteGrupo(
   tutorNome: string,
   data: string,
   horario: string,
-  itens: ItemComprovanteGrupo[]
+  itens: ItemComprovanteGrupo[],
+  mostrarValores = true
 ) {
   if (itens.length === 0) return;
   const nome = escaparHTMLComprovante;
@@ -474,9 +487,9 @@ function imprimirComprovanteGrupo(
       <div>${nome(item.servicoNome)}</div>
       <div class="detalhe">${nome(tipo)}</div>
       ${item.identificacao ? `<div class="detalhe">${nome(item.identificacao)}</div>` : ""}
-      <div class="linha"><span class="rotulo">${item.plano ? "Total do ciclo" : "Valor"}</span><span class="valor"><strong>${nome(valorComprovante(item.valor))}</strong></span></div>
-      <div class="detalhe"><strong>${item.pago ? "PAGO" : "PENDENTE"}</strong>${item.pago && item.forma ? ` • ${nome(item.forma)}` : ""}</div>
-      ${repetido ? `<div class="observacao">Mesmo ciclo: valor contabilizado uma única vez.</div>` : ""}
+      ${mostrarValores ? `<div class="linha"><span class="rotulo">${item.plano ? "Total do ciclo" : "Valor"}</span><span class="valor"><strong>${nome(valorComprovante(item.valor))}</strong></span></div>` : ""}
+      ${mostrarValores ? `<div class="detalhe"><strong>${item.pago ? "PAGO" : "PENDENTE"}</strong>${item.pago && item.forma ? ` • ${nome(item.forma)}` : ""}</div>` : ""}
+      ${mostrarValores && repetido ? `<div class="observacao">Mesmo ciclo: valor contabilizado uma única vez.</div>` : ""}
     </div>`;
   }).join("");
   const dados = `
@@ -487,11 +500,11 @@ function imprimirComprovanteGrupo(
     <hr class="separador" />
     ${linhas}
     <hr class="separador" />
-    <div class="linha"><span class="rotulo">VALORES JÁ PAGOS</span><span class="valor"><strong>${formatarValor(totalPago)}</strong></span></div>
+    ${mostrarValores ? `<div class="linha"><span class="rotulo">VALORES JÁ PAGOS</span><span class="valor"><strong>${formatarValor(totalPago)}</strong></span></div>
     <div class="etiqueta" style="text-align:center;margin-top:10px">TOTAL PENDENTE${faltamValores ? " CONHECIDO" : ""}</div>
     <div class="montante">${formatarValor(totalPendente)}</div>
     ${faltamValores ? `<div class="observacao"><strong>ATENÇÃO:</strong> Há valores de ciclos/serviços a conferir. O total acima está incompleto; não utilize como valor final de cobrança.</div>` : ""}
-    <div class="observacao">Planos: os valores são referentes ao ciclo completo e cada ciclo identificado é somado apenas uma vez.</div>`;
+    <div class="observacao">Planos: os valores são referentes ao ciclo completo e cada ciclo identificado é somado apenas uma vez.</div>` : ""}`;
   documentoComprovante(dados, "COMPROVANTE CONJUNTO");
 }
 
@@ -671,8 +684,12 @@ export default function AgendaPage() {
 
   function obterNomeServico(agendamento: Agendamento) {
     return nomeServicoPadronizado(
-      agendamento.servico_nome ||
-      servicos.find((item) => item.id === agendamento.servico_id)?.nome
+      ajustarServicoPorBanho(
+        agendamento.servico_nome ||
+          servicos.find((item) => item.id === agendamento.servico_id)?.nome,
+        agendamento.plano,
+        agendamento.numero_banho
+      )
     );
   }
 
@@ -829,10 +846,16 @@ export default function AgendaPage() {
           )) {
         throw new Error("O ciclo anterior não está totalmente concluído. Atualize a agenda.");
       }
+      const primeiroBanhoOrigem = agendamentos.find(a =>
+        a.pet_id === renovacao.pet_id && a.ciclo === renovacao.ciclo && a.numero_banho === 1
+      );
+      const servicoBaseRenovacao = primeiroBanhoOrigem?.servico_nome ||
+        renovacao.servico_nome ||
+        servicos.find(s => s.id === renovacao.servico_id)?.nome || null;
       const registros = datasRenovacao.map((data, i) => ({
         pet_id: renovacao.pet_id,
         servico_id: renovacao.servico_id,
-        servico_nome: renovacao.servico_nome,
+        servico_nome: ajustarServicoPorBanho(servicoBaseRenovacao, renovacao.plano, i + 1) || null,
         observacoes: renovacao.observacoes,
         valor_total: renovacao.valor_total,
         data,
@@ -1116,6 +1139,9 @@ export default function AgendaPage() {
 
             registros.push({
               ...dadosBase,
+              servico_nome: ajustarServicoPorBanho(
+                dadosBase.servico_nome, frequenciaAgendamento, i + 1
+              ) || null,
               data,
               plano: frequenciaAgendamento,
               numero_banho: i + 1,
@@ -1554,7 +1580,7 @@ export default function AgendaPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {ehAdmin && grupo.agendamentos.filter(a => !estaCancelado(a)).length > 1 && (
+            {grupo.agendamentos.filter(a => !estaCancelado(a)).length > 1 && (
               <button
                 type="button"
                 onClick={() => imprimirComprovanteGrupo(
@@ -1576,7 +1602,8 @@ export default function AgendaPage() {
                       ciclo: agendamento.ciclo,
                       petId: agendamento.pet_id,
                     };
-                  })
+                  }),
+                  ehAdmin
                 )}
                 className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800"
               >
