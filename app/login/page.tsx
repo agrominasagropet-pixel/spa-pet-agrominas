@@ -2,6 +2,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -42,7 +43,6 @@ export default function LoginPage() {
     setEntrando(true);
 
     try {
-      // Primeiro autentica o usuário e a senha.
       const { data, error: erroLogin } =
         await supabase.auth.signInWithPassword({
           email,
@@ -54,7 +54,6 @@ export default function LoginPage() {
         return;
       }
 
-      // Somente após autenticar, consulta o perfil.
       const { data: perfil, error: erroPerfil } =
         await supabase
           .from("perfis")
@@ -90,19 +89,22 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="rounded-3xl border border-emerald-100 bg-white p-7 shadow-xl shadow-emerald-900/5 sm:p-9">
           <div className="text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-700 text-3xl text-white shadow-sm">
-              🐾
+            <div className="mx-auto flex w-full justify-center">
+              <Image
+                src="/logo-agrominas.jpg"
+                alt="Logo oficial AGROMINAS Agropecuária"
+                width={260}
+                height={260}
+                priority
+                className="h-auto w-full max-w-[230px] object-contain"
+              />
             </div>
 
-            <p className="mt-5 text-xs font-bold uppercase tracking-[0.22em] text-emerald-700">
-              SPA PET
+            <p className="mt-3 text-xs font-bold uppercase tracking-[0.22em] text-emerald-700">
+              SPA PET AGROMINAS
             </p>
 
-            <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-emerald-950">
-              AGROMINAS
-            </h1>
-
-            <p className="mt-3 text-sm text-slate-500">
+            <p className="mt-2 text-sm text-slate-500">
               Gestão de banho e tosa
             </p>
           </div>
