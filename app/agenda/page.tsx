@@ -70,7 +70,9 @@ type Agendamento = {
 
 // Nomes padronizados apenas na interface; preserva IDs e dados históricos.
 const NOMES_SERVICOS: Record<string, string> = {
-  "Banho": "Banho Completo",
+  "Banho Completo": "Banho",
+  "Banho + Tosa": "Banho com Tosa Completa",
+  "Tosa higiênica": "Banho com Tosa Higiênica",
   "Banho + Tosa Higiênica": "Banho com Tosa Higiênica",
   "Banho + Tosa Completa": "Banho com Tosa Completa",
   "Tosa Máquina": "Tosa na Máquina",
@@ -162,7 +164,7 @@ function ajustarServicoPorBanho(
   plano: string | null | undefined,
   numeroBanho: number | null | undefined
 ) {
-  const nome = (servico || "").trim();
+  const nome = nomeServicoPadronizado(servico);
   if ((plano === "Mensal" || plano === "Quinzenal") && Number(numeroBanho) > 1) {
     return nome.replace(/banho\s*(?:\+|com)\s*tosa\s*higi[eê]nica/gi, "Banho");
   }
