@@ -611,6 +611,58 @@ export default function ClientesPetsPage() {
   const [cpf, setCpf] =
     useState("");
 
+  const [clienteCpfExistente, setClienteCpfExistente] =
+    useState<{ id: string; nome: string } | null>(null);
+  const [consultandoCpf, setConsultandoCpf] = useState(false);
+  const [erroConsultaCpf, setErroConsultaCpf] = useState(false);
+
+  // Consulta automaticamente ao completar 11 dígitos, sem exigir outros campos.
+  useEffect(() => {
+    const cpfNumeros = cpf.replace(/\D/g, "");
+    setClienteCpfExistente(null);
+    setErroConsultaCpf(false);
+
+    if (!modalCadastro || cpfNumeros.length !== 11) {
+      setConsultandoCpf(false);
+      return;
+    }
+
+    let cancelado = false;
+    setConsultandoCpf(true);
+    const temporizador = setTimeout(async () => {
+      try {
+        // Busca no banco, inclusive registros antigos com CPF pontuado.
+        const { data, error } = await supabase
+          .from("clientes")
+          .select("id,nome,cpf");
+        if (error) throw error;
+        if (cancelado) return;
+
+        const encontrado = (data || []).find((item) =>
+          String(item.cpf || "").replace(/\D/g, "") === cpfNumeros &&
+          String(item.id) !== String(clienteEditandoId || "")
+        );
+        setClienteCpfExistente(
+          encontrado
+            ? { id: String(encontrado.id), nome: String(encontrado.nome || "Cliente") }
+            : null
+        );
+      } catch (erro) {
+        if (!cancelado) {
+          console.error("Erro ao consultar CPF:", erro);
+          setErroConsultaCpf(true);
+        }
+      } finally {
+        if (!cancelado) setConsultandoCpf(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelado = true;
+      clearTimeout(temporizador);
+    };
+  }, [cpf, modalCadastro, clienteEditandoId]);
+
   const [contato, setContato] =
     useState("");
 
@@ -2537,8 +2589,20 @@ export default function ClientesPetsPage() {
                           )
                         }
                         placeholder="000.000.000-00"
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                        className={`mt-1 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 ${clienteCpfExistente ? "border-red-500 bg-red-50 focus:ring-red-100" : "border-slate-300 focus:border-emerald-500 focus:ring-emerald-100"}`}
                       />
+                      {consultandoCpf && (
+                        <p className="mt-2 text-xs text-slate-500" role="status">Consultando CPF...</p>
+                      )}
+                      {clienteCpfExistente && (
+                        <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
+                          <strong>CPF já cadastrado!</strong> Este CPF pertence a {clienteCpfExistente.nome}.
+                          <p className="mt-1">Pesquise esse cliente na lista e clique em Editar para adicionar outro pet.</p>
+                        </div>
+                      )}
+                      {erroConsultaCpf && (
+                        <p className="mt-2 text-xs text-amber-700" role="alert">Não foi possível consultar o CPF agora. Tente novamente antes de salvar.</p>
+                      )}
                     </div>
 
                     <div>
