@@ -2,11 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import MenuLateral from "@/app/components/MenuLateral";
 
 type Frequencia = "Avulso" | "Quinzenal" | "Mensal";
 type Turno = "Manhã" | "Tarde";
-type PagamentoPlano = "Pago" | "Pendente";
 
 type ServicosPet = {
   banhoTosa: string;
@@ -16,20 +14,6 @@ type ServicosPet = {
   dataInicio: string;
   turno: Turno;
   valorTotal: string;
-  pagamentoPlano: PagamentoPlano;
-  formaPagamentoPlano: string;
-};
-
-type PlanoResumo = {
-  ciclo: number;
-  totalBanhos: number;
-  banhosConcluidos: number;
-  banhosRestantes: number;
-  pagamento: PagamentoPlano;
-  formaPagamento: string;
-  dataInicio: string;
-  dataFim: string;
-  renovacaoDisponivel: boolean;
 };
 
 type Pet = {
@@ -41,15 +25,11 @@ type Pet = {
   peso: string;
   observacoes: string;
   servicos: ServicosPet;
-  plano?: PlanoResumo | null;
-  agendamentosFuturos: number;
-  retiradoDaAgenda: boolean;
 };
 
 type Cliente = {
   id: string;
   nome: string;
-  cpf: string;
   contato: string;
   cep: string;
   endereco: string;
@@ -57,18 +37,6 @@ type Cliente = {
   bairro: string;
   observacoes: string;
   pets: Pet[];
-};
-
-type AgendamentoBanco = {
-  id: string;
-  pet_id: string;
-  data: string;
-  status: string | null;
-  plano: string | null;
-  numero_banho: number | null;
-  ciclo: number | null;
-  pagamento_status: string | null;
-  forma_pagamento_plano: string | null;
 };
 
 const opcoesBanhoTosa = [
@@ -100,51 +68,153 @@ const opcoesAdicionais = [
 ];
 
 const racas = [
-  "Akita",
-  "American Bully",
+  "Afghan Hound",
+  "Affenpinscher",
+  "Airedale Terrier",
+  "Akita Americano",
+  "Akita Inu",
+  "Alaskan Malamute",
   "American Staffordshire Terrier",
+  "Australian Cattle Dog",
+  "Australian Shepherd",
+  "Australian Silky Terrier",
+  "Basenji",
   "Basset Hound",
   "Beagle",
+  "Bearded Collie",
+  "Beauceron",
+  "Bedlington Terrier",
   "Bernese (Boiadeiro de Berna)",
   "Bichon Frisé",
+  "Bloodhound",
+  "Bobtail",
   "Border Collie",
+  "Border Terrier",
+  "Borzoi",
   "Boston Terrier",
+  "Bouvier de Flandres",
   "Boxer",
-  "Bulldog Francês",
-  "Bulldog Inglês",
+  "Braco Alemão",
+  "Braco de Weimar",
+  "Briard",
+  "Brittany",
   "Bull Terrier",
+  "Bulldogue Americano",
+  "Bulldogue Francês",
+  "Bulldogue Inglês",
+  "Bullmastiff",
+  "Cairn Terrier",
   "Cane Corso",
+  "Cão de Água Português",
+  "Cão de Montanha dos Pirenéus",
+  "Cão de Santo Humberto",
+  "Cão Pastor Belga Groenendael",
+  "Cão Pastor Belga Malinois",
+  "Cão Pastor Belga Tervuren",
   "Cavalier King Charles Spaniel",
   "Chihuahua",
   "Chow Chow",
-  "Cocker Spaniel",
+  "Cocker Spaniel Americano",
+  "Cocker Spaniel Inglês",
+  "Collie",
+  "Coton de Tuléar",
   "Dachshund",
   "Dálmata",
-  "Doberman",
-  "Dogo Argentino",
-  "Fila Brasileiro",
-  "Fox Paulistinha",
+  "Dobermann",
+  "Dogue Alemão",
+  "Dogue de Bordeaux",
+  "Dogue de Canário",
+  "Dogue de Tibet",
+  "English Springer Spaniel",
+  "Fox Terrier",
+  "Fox Terrier Pelo Duro",
+  "Fox Terrier Pelo Liso",
+  "Galgo Inglês",
   "Golden Retriever",
+  "Grande Boiadeiro Suíço",
+  "Greyhound",
+  "Griffon de Bruxelas",
   "Husky Siberiano",
+  "Irish Setter",
   "Jack Russell Terrier",
+  "Japanese Chin",
+  "Keeshond",
+  "Komondor",
+  "Kuvasz",
   "Labrador Retriever",
+  "Lakeland Terrier",
+  "Lagotto Romagnolo",
+  "Leonberger",
   "Lhasa Apso",
+  "Löwchen",
   "Maltês",
   "Mastiff",
+  "Mastim Napolitano",
+  "Mastim Tibetano",
+  "Maremmano-Abruzzês",
+  "Manchester Terrier",
+  "Miniature Pinscher",
+  "Miniature Schnauzer",
+  "Morkie",
+  "Newfoundland",
+  "Norfolk Terrier",
+  "Norwich Terrier",
+  "Nova Scotia Duck Tolling Retriever",
+  "Old English Sheepdog",
+  "Papillon",
   "Pastor Alemão",
   "Pastor Australiano",
-  "Pastor Belga",
-  "Pequinês",
+  "Pastor de Shetland",
+  "Pastor Holandês",
+  "Pastor Maremano",
+  "Pastor Polonês de Planície",
+  "Pastor Suíço Branco",
+  "Pekingese",
   "Pinscher",
   "Pit Bull",
+  "Pointer Inglês",
+  "Pomeranian",
   "Poodle",
+  "Poodle Toy",
+  "Prague Ratter",
+  "Presa Canário",
   "Pug",
+  "Puli",
+  "Rhodesian Ridgeback",
   "Rottweiler",
+  "Russian Toy",
+  "Saint Bernard",
+  "Saluki",
+  "Samoyed",
   "Schnauzer",
-  "Shih Tzu",
-  "Spitz Alemão",
+  "Schnauzer Gigante",
+  "Schnauzer Médio",
+  "Scottish Terrier",
+  "Shar Pei",
+  "Shetland Sheepdog",
+  "Shih-tzu",
+  "Siberian Husky",
+  "Skye Terrier",
+  "Sloughi",
+  "Soft Coated Wheaten Terrier",
   "Staffordshire Bull Terrier",
+  "Standard Poodle",
+  "Sussex Spaniel",
+  "Teckel",
+  "Terra Nova",
+  "Thai Ridgeback",
+  "Tibetan Spaniel",
+  "Tibetan Terrier",
+  "Toy Fox Terrier",
+  "Vizsla",
+  "Weimaraner",
+  "Welsh Corgi Cardigan",
+  "Welsh Corgi Pembroke",
+  "Welsh Terrier",
+  "West Highland White Terrier",
+  "Whippet",
   "Yorkshire Terrier",
+  "Yorkshire Terrier Mini",
   "SRD",
   "Outra raça",
 ].sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -166,121 +236,183 @@ function criarPet(id: string): Pet {
       dataInicio: "",
       turno: "Manhã",
       valorTotal: "",
-      pagamentoPlano: "Pendente",
-      formaPagamentoPlano: "",
     },
-    plano: null,
-    agendamentosFuturos: 0,
-    retiradoDaAgenda: false,
   };
 }
 
 function converterPetDoBanco(pet: any): Pet {
-  const frequencia: Frequencia =
-    pet?.frequencia === "Mensal"
-      ? "Mensal"
-      : pet?.frequencia === "Quinzenal"
-      ? "Quinzenal"
-      : "Avulso";
-
   return {
-    id: String(pet?.id || ""),
-    nome: pet?.nome || "",
-    raca: pet?.["raça"] || pet?.raca || "",
-    sexo: pet?.sexo || "",
-    dataNascimento: pet?.data_nascimento || "",
+    id: pet.id,
+    nome: pet.nome ?? "",
+    raca: pet["raça"] ?? "",
+    sexo: pet.sexo ?? "",
+    dataNascimento: pet.data_nascimento ?? "",
     peso:
-      pet?.peso !== null &&
-      pet?.peso !== undefined
+      pet.peso !== null && pet.peso !== undefined
         ? String(pet.peso)
         : "",
-    observacoes: pet?.observacoes || "",
+    observacoes: pet.observacoes ?? "",
     servicos: {
-      banhoTosa: pet?.banho_tosa || "",
-      tosas: Array.isArray(pet?.tosas)
-        ? pet.tosas
-        : [],
-      adicionais: Array.isArray(
-        pet?.adicionais
-      )
+      banhoTosa: pet.banho_tosa ?? "",
+      tosas: Array.isArray(pet.tosas) ? pet.tosas : [],
+      adicionais: Array.isArray(pet.adicionais)
         ? pet.adicionais
         : [],
-      frequencia,
-      dataInicio: pet?.data_inicio || "",
-      turno:
-        pet?.turno === "Tarde"
-          ? "Tarde"
-          : "Manhã",
+      frequencia: pet.frequencia ?? "Avulso",
+      dataInicio: pet.data_inicio ?? "",
+      turno: pet.turno === "Tarde" ? "Tarde" : "Manhã",
       valorTotal:
-        pet?.valor_total !== null &&
-        pet?.valor_total !== undefined
+        pet.valor_total !== null &&
+        pet.valor_total !== undefined
           ? String(pet.valor_total)
           : "",
-      pagamentoPlano: "Pendente",
-      formaPagamentoPlano: "",
     },
-    plano: null,
-    agendamentosFuturos: 0,
-    retiradoDaAgenda: false,
   };
 }
 
-function adicionarDias(data: string, dias: number) {
-  const partes = data.split("-");
+async function carregarClientes(): Promise<Cliente[]> {
+  const { data: clientesData, error: clientesError } =
+    await supabase
+      .from("clientes")
+      .select(
+        `
+          id,
+          nome,
+          whatsapp,
+          telefone,
+          cep,
+          rua,
+          numero,
+          bairro,
+          observacoes
+        `
+      )
+      .order("nome");
 
-  if (partes.length !== 3) {
-    return data;
+  if (clientesError) {
+    console.error("Erro ao carregar clientes:", clientesError);
+    throw clientesError;
   }
 
-  const dataObj = new Date(
-    Number(partes[0]),
-    Number(partes[1]) - 1,
-    Number(partes[2])
+  const clientes = clientesData ?? [];
+
+  if (clientes.length === 0) {
+    return [];
+  }
+
+  const idsClientes = clientes.map((cliente) => cliente.id);
+
+  const { data: petsData, error: petsError } =
+    await supabase
+      .from("pets")
+      .select(
+        `
+          id,
+          cliente_id,
+          nome,
+          "raça",
+          sexo,
+          data_nascimento,
+          peso,
+          observacoes,
+          banho_tosa,
+          tosas,
+          adicionais,
+          frequencia,
+          data_inicio,
+          turno,
+          valor_total
+        `
+      )
+      .in("cliente_id", idsClientes);
+
+  if (petsError) {
+    console.error("Erro ao carregar pets:", petsError);
+    throw petsError;
+  }
+
+  const pets = petsData ?? [];
+
+  return clientes.map((cliente) => ({
+    id: cliente.id,
+    nome: cliente.nome ?? "",
+    contato: cliente.whatsapp || cliente.telefone || "",
+    cep: cliente.cep ?? "",
+    endereco: cliente.rua ?? "",
+    numero: cliente.numero ?? "",
+    bairro: cliente.bairro ?? "",
+    observacoes: cliente.observacoes ?? "",
+    pets: pets
+      .filter((pet) => pet.cliente_id === cliente.id)
+      .map(converterPetDoBanco),
+  }));
+}
+
+function adicionarDias(data: string, dias: number): string {
+  const resultado = new Date(`${data}T12:00:00`);
+  resultado.setDate(resultado.getDate() + dias);
+
+  return resultado.toISOString().slice(0, 10);
+}
+
+function adicionarMeses(data: string, meses: number): string {
+  const original = new Date(`${data}T12:00:00`);
+
+  const ano = original.getFullYear();
+  const mes = original.getMonth();
+  const dia = original.getDate();
+
+  const destino = new Date(ano, mes + meses, 1, 12);
+
+  const ultimoDiaDoMes = new Date(
+    destino.getFullYear(),
+    destino.getMonth() + 1,
+    0,
+    12
+  ).getDate();
+
+  destino.setDate(Math.min(dia, ultimoDiaDoMes));
+
+  return destino.toISOString().slice(0, 10);
+}
+
+function gerarDatasAgendamento(
+  dataInicial: string,
+  frequencia: Frequencia
+): string[] {
+  if (!dataInicial) {
+    return [];
+  }
+
+  if (frequencia === "Avulso") {
+    return [dataInicial];
+  }
+
+  const datas: string[] = [];
+  let dataAtual = dataInicial;
+  const limite = adicionarMeses(dataInicial, 12);
+
+  while (dataAtual <= limite) {
+    datas.push(dataAtual);
+
+    if (frequencia === "Quinzenal") {
+      dataAtual = adicionarDias(dataAtual, 14);
+    } else {
+      dataAtual = adicionarMeses(dataAtual, 1);
+    }
+  }
+
+  return datas;
+}
+
+function formatarMoeda(valor: string): string {
+  const numero = Number(
+    valor.replace(/\./g, "").replace(",", ".")
   );
 
-  dataObj.setDate(dataObj.getDate() + dias);
-
-  const ano = dataObj.getFullYear();
-  const mes = String(
-    dataObj.getMonth() + 1
-  ).padStart(2, "0");
-  const dia = String(
-    dataObj.getDate()
-  ).padStart(2, "0");
-
-  return `${ano}-${mes}-${dia}`;
-}
-
-function hojeISO() {
-  const hoje = new Date();
-
-  const ano = hoje.getFullYear();
-  const mes = String(
-    hoje.getMonth() + 1
-  ).padStart(2, "0");
-  const dia = String(
-    hoje.getDate()
-  ).padStart(2, "0");
-
-  return `${ano}-${mes}-${dia}`;
-}
-
-function formatarData(data: string) {
-  if (!data) return "-";
-
-  const partes = data.split("-");
-
-  if (partes.length !== 3) {
-    return data;
+  if (Number.isNaN(numero)) {
+    return "";
   }
-
-  return `${partes[2]}/${partes[1]}/${partes[0]}`;
-}
-
-function formatarMoeda(
-  valor: string | number | null | undefined
-) {
-  const numero = Number(valor || 0);
 
   return numero.toLocaleString("pt-BR", {
     style: "currency",
@@ -288,743 +420,79 @@ function formatarMoeda(
   });
 }
 
-function valorNumerico(valor: string) {
-  if (!valor) return 0;
-
-  const limpo = valor
-    .replace(/\./g, "")
-    .replace(",", ".")
-    .replace(/[^\d.-]/g, "");
-
-  return Number(limpo) || 0;
-}
-
-function horarioDoTurno(turno: Turno) {
-  return turno === "Tarde"
-    ? "13:30"
-    : "08:00";
-}
-
-function formatarCep(valor: string) {
-  const numeros = valor
-    .replace(/\D/g, "")
-    .slice(0, 8);
-
-  if (numeros.length <= 5) {
-    return numeros;
-  }
-
-  return `${numeros.slice(
-    0,
-    5
-  )}-${numeros.slice(5)}`;
-}
-
-function formatarCpf(valor: string) {
-  const numeros = valor
-    .replace(/\D/g, "")
-    .slice(0, 11);
-
-  if (numeros.length <= 3) {
-    return numeros;
-  }
-
-  if (numeros.length <= 6) {
-    return `${numeros.slice(
-      0,
-      3
-    )}.${numeros.slice(3)}`;
-  }
-
-  if (numeros.length <= 9) {
-    return `${numeros.slice(
-      0,
-      3
-    )}.${numeros.slice(
-      3,
-      6
-    )}.${numeros.slice(6)}`;
-  }
-
-  return `${numeros.slice(
-    0,
-    3
-  )}.${numeros.slice(
-    3,
-    6
-  )}.${numeros.slice(
-    6,
-    9
-  )}-${numeros.slice(9)}`;
-}
-
-function somenteDigitos(valor: string) {
-  return String(valor || "").replace(/\D/g, "");
-}
-
-function cpfValido(valor: string) {
-  const numeros = somenteDigitos(valor);
-  if (numeros.length !== 11 || /^(\d)\1{10}$/.test(numeros)) return false;
-  for (let tamanho = 9; tamanho < 11; tamanho++) {
-    const soma = numeros.slice(0, tamanho).split("").reduce(
-      (total, digito, indice) => total + Number(digito) * (tamanho + 1 - indice), 0
-    );
-    const resto = (soma * 10) % 11;
-    const verificador = resto === 10 ? 0 : resto;
-    if (verificador !== Number(numeros[tamanho])) return false;
-  }
-  return true;
-}
-
-function normalizarNome(valor: string) {
-  return valor.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ");
-}
-
-function formatarContato(valor: string) {
-  const numeros = valor
-    .replace(/\D/g, "")
-    .slice(0, 11);
-
-  if (numeros.length <= 2) {
-    return numeros;
-  }
-
-  if (numeros.length <= 7) {
-    return `(${numeros.slice(
-      0,
-      2
-    )}) ${numeros.slice(2)}`;
-  }
-
-  if (numeros.length === 10) {
-    return `(${numeros.slice(
-      0,
-      2
-    )}) ${numeros.slice(
-      2,
-      6
-    )}-${numeros.slice(6)}`;
-  }
-
-  return `(${numeros.slice(
-    0,
-    2
-  )}) ${numeros.slice(
-    2,
-    7
-  )}-${numeros.slice(7)}`;
-}
-
-function quantidadeBanhosPorCiclo(
-  frequencia: Frequencia
-) {
-  if (frequencia === "Mensal") return 4;
-  if (frequencia === "Quinzenal") return 2;
-  return 1;
-}
-
-function intervaloEntreBanhos(
-  frequencia: Frequencia
-) {
-  if (frequencia === "Mensal") return 7;
-  if (frequencia === "Quinzenal") return 14;
-  return 0;
-}
-
-function descricaoFrequencia(
-  frequencia: Frequencia
-) {
-  if (frequencia === "Mensal") {
-    return "4 banhos por ciclo";
-  }
-
-  if (frequencia === "Quinzenal") {
-    return "2 banhos por ciclo";
-  }
-
-  return "1 banho";
-}
-
-function statusConcluido(
-  status: string | null | undefined
-) {
-  const valor = String(
-    status || ""
-  ).toLowerCase();
-
-  return (
-    valor.includes("conclu") ||
-    valor.includes("finaliz") ||
-    valor.includes("realiz") ||
-    valor.includes("pronto")
-  );
-}
-
-function statusCancelado(status: string | null | undefined) {
-  return String(status || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() === "cancelado";
-}
-
-function criarResumoPlano(
-  pet: Pet,
-  agendamentos: AgendamentoBanco[]
-): PlanoResumo | null {
-  const doPet = agendamentos.filter(
-    (item) =>
-      String(item.pet_id) ===
-      String(pet.id)
+function valorNumerico(valor: string): number {
+  const numero = Number(
+    valor.replace(/\./g, "").replace(",", ".")
   );
 
-  if (!doPet.length) {
-    return null;
-  }
-
-  const ciclos = Array.from(
-    new Set(
-      doPet.map((item) => {
-        const numero = Number(
-          item.ciclo
-        );
-
-        return Number.isFinite(numero) &&
-          numero > 0
-          ? numero
-          : 1;
-      })
-    )
-  ).sort((a, b) => a - b);
-
-  const hoje = hojeISO();
-
-  let cicloAtual = ciclos.find(
-    (ciclo) => {
-      const itens = doPet.filter(
-        (item) =>
-          Number(item.ciclo || 1) ===
-          ciclo
-      );
-
-      const ultimaData = itens
-        .map((item) => item.data)
-        .filter(Boolean)
-        .sort()
-        .at(-1);
-
-      return ultimaData
-        ? ultimaData >= hoje
-        : false;
-    }
-  );
-
-  if (!cicloAtual) {
-    cicloAtual =
-      ciclos[ciclos.length - 1] || 1;
-  }
-
-  const itensCiclo = doPet
-    .filter(
-      (item) =>
-        Number(item.ciclo || 1) ===
-        cicloAtual
-    )
-    .sort((a, b) =>
-      String(a.data).localeCompare(
-        String(b.data)
-      )
-    );
-
-  const frequenciaCiclo = (itensCiclo[0]?.plano === "Mensal" || itensCiclo[0]?.plano === "Quinzenal" || itensCiclo[0]?.plano === "Avulso")
-    ? itensCiclo[0].plano as Frequencia
-    : pet.servicos.frequencia;
-
-  const totalBanhos = quantidadeBanhosPorCiclo(frequenciaCiclo);
-
-  const banhosConcluidos =
-    itensCiclo.filter((item) =>
-      statusConcluido(item.status)
-    ).length;
-
-  const banhosRestantes = Math.max(
-    itensCiclo.filter((item) => !statusConcluido(item.status) && !statusCancelado(item.status)).length,
-    0
-  );
-
-  /*
-   * O ciclo somente é considerado PAGO
-   * quando todos os agendamentos daquele
-   * ciclo estão pagos.
-   */
-  const pago =
-    itensCiclo.length >= totalBanhos &&
-    itensCiclo.every(
-      (item) =>
-        String(
-          item.pagamento_status || ""
-        ).toLowerCase() === "pago"
-    );
-
-  const primeiro =
-    itensCiclo[0]?.data ||
-    pet.servicos.dataInicio ||
-    "";
-
-  const ultimo =
-    itensCiclo[
-      itensCiclo.length - 1
-    ]?.data ||
-    pet.servicos.dataInicio ||
-    "";
-
-  const cicloFinalizado =
-    itensCiclo.length >= totalBanhos &&
-    itensCiclo.every((item) =>
-      statusConcluido(item.status)
-    );
-
-  const cicloVencido =
-    !!ultimo && ultimo < hoje;
-
-  const formaPagamento =
-    itensCiclo.find(
-      (item) =>
-        item.forma_pagamento_plano
-    )?.forma_pagamento_plano ||
-    "";
-
-  return {
-    ciclo: cicloAtual,
-    totalBanhos,
-    banhosConcluidos,
-    banhosRestantes,
-    pagamento: pago
-      ? "Pago"
-      : "Pendente",
-    formaPagamento,
-    dataInicio: primeiro,
-    dataFim: ultimo,
-    renovacaoDisponivel:
-      pet.servicos.frequencia !==
-        "Avulso" &&
-      (cicloFinalizado ||
-        cicloVencido ||
-        itensCiclo.every((item) => statusConcluido(item.status) || statusCancelado(item.status))),
-  };
+  return Number.isNaN(numero) ? 0 : numero;
 }
 
-export default function ClientesPetsPage() {
-  const [clientes, setClientes] =
-    useState<Cliente[]>([]);
+function horarioDoTurno(turno: Turno): string {
+  return turno === "Tarde" ? "13:30" : "08:00";
+}
 
-  const [busca, setBusca] =
+export default function ClientesPets() {
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [busca, setBusca] = useState("");
+
+  const [modalCadastro, setModalCadastro] = useState(false);
+  const [modoEdicao, setModoEdicao] = useState(false);
+  const [clienteEditandoId, setClienteEditandoId] =
+    useState<string | null>(null);
+
+  const [clienteSelecionado, setClienteSelecionado] =
+    useState<Cliente | null>(null);
+
+  const [carregando, setCarregando] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+  const [buscandoCep, setBuscandoCep] = useState(false);
+
+  const [nomeCliente, setNomeCliente] = useState("");
+  const [contato, setContato] = useState("");
+  const [cep, setCep] = useState("");
+  const [endereco, setEndereco] = useState("");
+  const [numero, setNumero] = useState("");
+  const [bairro, setBairro] = useState("");
+  const [observacoesCliente, setObservacoesCliente] =
     useState("");
 
-  const [modalCadastro, setModalCadastro] =
-    useState(false);
+  const [pets, setPets] = useState<Pet[]>([
+    criarPet("novo-1"),
+  ]);
 
-  const [modoEdicao, setModoEdicao] =
-    useState(false);
-
-  const [
-    clienteEditandoId,
-    setClienteEditandoId,
-  ] = useState<string | null>(null);
-
-  const [
-    clienteSelecionado,
-    setClienteSelecionado,
-  ] = useState<Cliente | null>(null);
-
-  const [carregando, setCarregando] =
-    useState(true);
-
-  const [salvando, setSalvando] =
-    useState(false);
-
-  const [excluindo, setExcluindo] =
-    useState(false);
-
-  const [buscandoCep, setBuscandoCep] =
-    useState(false);
-
-  const [nomeCliente, setNomeCliente] =
-    useState("");
-
-  const [cpf, setCpf] =
-    useState("");
-
-  const [verificacaoCpf, setVerificacaoCpf] = useState<{
-    cpf: string;
-    estado: "consultando" | "duplicado" | "disponivel" | "erro";
-    nome?: string;
-  } | null>(null);
-
-  const cpfNumeros = somenteDigitos(cpf);
-  const cpfDuplicadoLocal = cpfNumeros.length === 11 && cpfValido(cpfNumeros)
-    ? clientes.find((cliente) =>
-        somenteDigitos(cliente.cpf) === cpfNumeros &&
-        String(cliente.id) !== String(clienteEditandoId || "")
-      )
-    : undefined;
-  const cpfDuplicado = cpfDuplicadoLocal ||
-    (verificacaoCpf?.cpf === cpfNumeros && verificacaoCpf.estado === "duplicado"
-      ? { nome: verificacaoCpf.nome || "outro cliente" }
-      : undefined);
-
-  useEffect(() => {
-    if (!modalCadastro || cpfNumeros.length !== 11 || !cpfValido(cpfNumeros)) {
-      return;
-    }
-    if (cpfDuplicadoLocal) return;
-
-    let ativo = true;
-    const timer = setTimeout(async () => {
-      setVerificacaoCpf({ cpf: cpfNumeros, estado: "consultando" });
-      const { data, error } = await supabase
-        .from("clientes")
-        .select("id,nome,cpf")
-        .not("cpf", "is", null);
-      if (!ativo) return;
-      if (error) {
-        setVerificacaoCpf({ cpf: cpfNumeros, estado: "erro" });
-        return;
-      }
-      const existente = (data || []).find((item) =>
-        somenteDigitos(item.cpf || "") === cpfNumeros &&
-        String(item.id) !== String(clienteEditandoId || "")
-      );
-      setVerificacaoCpf({
-        cpf: cpfNumeros,
-        estado: existente ? "duplicado" : "disponivel",
-        nome: existente?.nome,
-      });
-    }, 300);
-    return () => { ativo = false; clearTimeout(timer); };
-  }, [cpfNumeros, modalCadastro, clienteEditandoId, cpfDuplicadoLocal?.id]);
-
-
-  const [contato, setContato] =
-    useState("");
-
-  const [cep, setCep] =
-    useState("");
-
-  const [endereco, setEndereco] =
-    useState("");
-
-  const [numero, setNumero] =
-    useState("");
-
-  const [bairro, setBairro] =
-    useState("");
-
-  const [
-    observacoesCliente,
-    setObservacoesCliente,
-  ] = useState("");
-
-  const [pets, setPets] =
-    useState<Pet[]>([
-      criarPet("novo-1"),
-    ]);
-
-  const [
-    modalPlanoPet,
-    setModalPlanoPet,
-  ] = useState<{
-    clienteId: string;
-    petId: string;
-  } | null>(null);
-
-  const [
-    frequenciaRenovacao,
-    setFrequenciaRenovacao,
-  ] = useState<Frequencia>(
-    "Mensal"
-  );
-
-  const [
-    dataInicioRenovacao,
-    setDataInicioRenovacao,
-  ] = useState("");
-
-  const [
-    turnoRenovacao,
-    setTurnoRenovacao,
-  ] = useState<Turno>("Manhã");
-
-  const [
-    valorRenovacao,
-    setValorRenovacao,
-  ] = useState("");
-
-  const [
-    renovandoPetId,
-    setRenovandoPetId,
-  ] = useState<string | null>(null);
-
-  const [retirandoPetId, setRetirandoPetId] = useState<string | null>(null);
-  const [mostrarTodos, setMostrarTodos] = useState(false);
-
-  /*
-   * ============================================================
-   * CARREGAR CLIENTES
-   * ============================================================
-   *
-   * Aqui usamos select("*") de propósito.
-   *
-   * Isso evita que a página inteira fique vazia caso exista
-   * alguma diferença entre as colunas do banco e a lista
-   * de colunas escrita manualmente no select.
-   *
-   * Clientes são carregados primeiro.
-   * Se houver algum problema em pets/agendamentos, os clientes
-   * continuam aparecendo.
-   */
-
-  async function carregarClientes() {
-    setCarregando(true);
-
+  async function atualizarLista() {
     try {
-      const {
-        data: clientesBanco,
-        error: erroClientes,
-      } = await supabase
-        .from("clientes")
-        .select("*")
-        .order("nome", {
-          ascending: true,
-        });
+      setCarregando(true);
 
-      if (erroClientes) {
-        console.error(
-          "ERRO AO CARREGAR CLIENTES:",
-          erroClientes
-        );
+      const dados = await carregarClientes();
 
-        throw erroClientes;
-      }
-
-      /*
-       * PETS
-       */
-      let petsBanco: any[] = [];
-
-      const {
-        data: petsData,
-        error: erroPets,
-      } = await supabase
-        .from("pets")
-        .select("*")
-        .order("nome", {
-          ascending: true,
-        });
-
-      if (erroPets) {
-        console.error(
-          "ERRO AO CARREGAR PETS:",
-          erroPets
-        );
-
-        /*
-         * Não interrompe o carregamento dos clientes.
-         */
-        petsBanco = [];
-      } else {
-        petsBanco = petsData || [];
-      }
-
-      /*
-       * AGENDAMENTOS
-       */
-      let agendamentos: AgendamentoBanco[] =
-        [];
-
-      const idsPets = petsBanco
-        .map((pet) => pet?.id)
-        .filter(Boolean);
-
-      if (idsPets.length > 0) {
-        const {
-          data: agendamentosData,
-          error: erroAgendamentos,
-        } = await supabase
-          .from("agendamentos")
-          .select("*")
-          .in("pet_id", idsPets)
-          .order("data", {
-            ascending: true,
-          });
-
-        if (erroAgendamentos) {
-          console.error(
-            "ERRO AO CARREGAR AGENDAMENTOS:",
-            erroAgendamentos
-          );
-        } else {
-          agendamentos =
-            (agendamentosData ||
-              []) as AgendamentoBanco[];
-        }
-      }
-
-      /*
-       * CONVERTE OS PETS
-       */
-      const petsConvertidos: Pet[] =
-        petsBanco.map(
-          (petBanco) =>
-            converterPetDoBanco(
-              petBanco
-            )
-        );
-
-      /*
-       * MONTA OS CLIENTES
-       */
-      const clientesFormatados: Cliente[] =
-        (clientesBanco || []).map(
-          (cliente: any) => {
-            const petsDoCliente =
-              petsConvertidos
-                .filter((pet) => {
-                  const petBanco =
-                    petsBanco.find(
-                      (item) =>
-                        String(
-                          item?.id
-                        ) ===
-                        String(pet.id)
-                    );
-
-                  return (
-                    String(
-                      petBanco?.cliente_id ||
-                        ""
-                    ) ===
-                    String(
-                      cliente?.id ||
-                        ""
-                    )
-                  );
-                })
-                .map((pet) => {
-                  const plano =
-                    criarResumoPlano(
-                      pet,
-                      agendamentos
-                    );
-
-                   const agendamentosDoPet = agendamentos.filter((a) => String(a.pet_id) === String(pet.id));
-                   const hoje = hojeISO();
-                   const agendamentosFuturos = agendamentosDoPet.filter((a) => a.data >= hoje && !statusCancelado(a.status) && !statusConcluido(a.status)).length;
-                   const retiradoDaAgenda = agendamentosFuturos === 0 && agendamentosDoPet.some((a) => statusCancelado(a.status));
-
-                   return {
-                     ...pet,
-                     plano,
-                     agendamentosFuturos,
-                     retiradoDaAgenda,
-                    servicos: {
-                      ...pet.servicos,
-                      pagamentoPlano:
-                        plano?.pagamento ||
-                        pet.servicos
-                          .pagamentoPlano,
-                      formaPagamentoPlano:
-                        plano?.formaPagamento ||
-                        pet.servicos
-                          .formaPagamentoPlano,
-                    },
-                  };
-                });
-
-            return {
-              id: String(
-                cliente?.id || ""
-              ),
-
-              nome:
-                cliente?.nome || "",
-
-              cpf:
-                cliente?.cpf || "",
-
-              contato:
-                cliente?.whatsapp ||
-                cliente?.telefone ||
-                "",
-
-              cep:
-                cliente?.cep || "",
-
-              endereco:
-                cliente?.rua || "",
-
-              numero:
-                cliente?.numero || "",
-
-              bairro:
-                cliente?.bairro || "",
-
-              observacoes:
-                cliente?.observacoes ||
-                "",
-
-              pets: petsDoCliente,
-            };
-          }
-        );
-
-      console.log(
-        "CLIENTES CARREGADOS:",
-        clientesFormatados
-      );
-
-      setClientes(
-        clientesFormatados
-      );
-
-      return clientesFormatados;
-    } catch (error: any) {
-      console.error(
-        "ERRO COMPLETO AO CARREGAR CLIENTES:",
-        error
-      );
+      setClientes(dados);
+    } catch (erro) {
+      console.error("Erro ao atualizar lista:", erro);
 
       alert(
-        `Erro ao carregar clientes: ${
-          error?.message ||
-          "erro desconhecido"
-        }`
+        "Não foi possível carregar os clientes. Verifique a conexão com o Supabase."
       );
-
-      setClientes([]);
-
-      return [];
     } finally {
       setCarregando(false);
     }
   }
 
   useEffect(() => {
-    carregarClientes();
+    atualizarLista();
   }, []);
 
   function limparFormulario() {
     setNomeCliente("");
-    setCpf("");
     setContato("");
     setCep("");
     setEndereco("");
     setNumero("");
     setBairro("");
     setObservacoesCliente("");
-
-    setPets([
-      criarPet(
-        `novo-${Date.now()}`
-      ),
-    ]);
-
+    setPets([criarPet(`novo-${Date.now()}`)]);
     setModoEdicao(false);
     setClienteEditandoId(null);
   }
@@ -1034,72 +502,35 @@ export default function ClientesPetsPage() {
     setModalCadastro(true);
   }
 
-  function abrirEdicao(
-    cliente: Cliente
-  ) {
+  function abrirEdicao(cliente: Cliente) {
+    setClienteSelecionado(null);
+
     setModoEdicao(true);
+    setClienteEditandoId(cliente.id);
 
-    setClienteEditandoId(
-      cliente.id
-    );
-
-    setNomeCliente(
-      cliente.nome
-    );
-
-    setCpf(cliente.cpf);
-
-    setContato(
-      cliente.contato
-    );
-
+    setNomeCliente(cliente.nome);
+    setContato(cliente.contato);
     setCep(cliente.cep);
-
-    setEndereco(
-      cliente.endereco
-    );
-
-    setNumero(
-      cliente.numero
-    );
-
-    setBairro(
-      cliente.bairro
-    );
-
-    setObservacoesCliente(
-      cliente.observacoes
-    );
+    setEndereco(cliente.endereco);
+    setNumero(cliente.numero);
+    setBairro(cliente.bairro);
+    setObservacoesCliente(cliente.observacoes);
 
     setPets(
-      cliente.pets.length
-        ? cliente.pets.map(
-            (pet) => ({
-              ...pet,
-              servicos: {
-                ...pet.servicos,
-                pagamentoPlano:
-                  pet.plano
-                    ?.pagamento ||
-                  pet.servicos
-                    .pagamentoPlano,
-                formaPagamentoPlano:
-                  pet.plano
-                    ?.formaPagamento ||
-                  pet.servicos
-                    .formaPagamentoPlano,
-              },
-            })
-          )
-        : [
-            criarPet(
-              `novo-${Date.now()}`
-            ),
-          ]
-    );
-
-    setClienteSelecionado(
-      null
+      cliente.pets.length > 0
+        ? cliente.pets.map((pet) => ({
+            ...pet,
+            servicos: {
+              ...pet.servicos,
+              tosas: [...pet.servicos.tosas],
+              adicionais: [...pet.servicos.adicionais],
+              turno:
+                pet.servicos.turno === "Tarde"
+                  ? "Tarde"
+                  : "Manhã",
+            },
+          }))
+        : [criarPet(`novo-${Date.now()}`)]
     );
 
     setModalCadastro(true);
@@ -1108,52 +539,43 @@ export default function ClientesPetsPage() {
   function fecharCadastro() {
     if (!salvando) {
       setModalCadastro(false);
-      limparFormulario();
     }
   }
 
-  async function buscarCep(
-    valor: string
-  ) {
-    const cepNumeros =
-      valor.replace(/\D/g, "");
+  async function buscarCep(valor: string) {
+    const somenteNumeros = valor.replace(/\D/g, "");
 
-    if (
-      cepNumeros.length !== 8
-    ) {
+    setCep(somenteNumeros);
+
+    if (somenteNumeros.length !== 8) {
       return;
     }
 
     setBuscandoCep(true);
 
     try {
-      const resposta =
-        await fetch(
-          `https://viacep.com.br/ws/${cepNumeros}/json/`
-        );
+      const resposta = await fetch(
+        `https://viacep.com.br/ws/${somenteNumeros}/json/`
+      );
 
-      const dados =
-        await resposta.json();
+      if (!resposta.ok) {
+        throw new Error("Erro ao consultar CEP.");
+      }
+
+      const dados = await resposta.json();
 
       if (dados.erro) {
-        alert(
-          "CEP não encontrado."
-        );
-
+        alert("CEP não encontrado.");
+        setEndereco("");
+        setBairro("");
         return;
       }
 
-      setEndereco(
-        dados.logradouro || ""
-      );
-
-      setBairro(
-        dados.bairro || ""
-      );
-    } catch {
-      alert(
-        "Não foi possível consultar o CEP."
-      );
+      setEndereco(dados.logradouro ?? "");
+      setBairro(dados.bairro ?? "");
+    } catch (erro) {
+      console.error("Erro ao consultar CEP:", erro);
+      alert("Não foi possível consultar o CEP.");
     } finally {
       setBuscandoCep(false);
     }
@@ -1164,8 +586,8 @@ export default function ClientesPetsPage() {
     campo: keyof Pet,
     valor: string
   ) {
-    setPets((lista) =>
-      lista.map((pet) =>
+    setPets((listaAtual) =>
+      listaAtual.map((pet) =>
         pet.id === id
           ? {
               ...pet,
@@ -1181,8 +603,8 @@ export default function ClientesPetsPage() {
     campo: keyof ServicosPet,
     valor: string
   ) {
-    setPets((lista) =>
-      lista.map((pet) =>
+    setPets((listaAtual) =>
+      listaAtual.map((pet) =>
         pet.id === id
           ? {
               ...pet,
@@ -1198,30 +620,20 @@ export default function ClientesPetsPage() {
 
   function alternarListaServico(
     id: string,
-    campo:
-      | "tosas"
-      | "adicionais",
+    campo: "tosas" | "adicionais",
     valor: string
   ) {
-    setPets((lista) =>
-      lista.map((pet) => {
+    setPets((listaAtual) =>
+      listaAtual.map((pet) => {
         if (pet.id !== id) {
           return pet;
         }
 
-        const atual =
-          pet.servicos[campo];
+        const listaAtualServico = pet.servicos[campo];
 
-        const novaLista =
-          atual.includes(valor)
-            ? atual.filter(
-                (item) =>
-                  item !== valor
-              )
-            : [
-                ...atual,
-                valor,
-              ];
+        const novaLista = listaAtualServico.includes(valor)
+          ? listaAtualServico.filter((item) => item !== valor)
+          : [...listaAtualServico, valor];
 
         return {
           ...pet,
@@ -1235,465 +647,316 @@ export default function ClientesPetsPage() {
   }
 
   function adicionarPet() {
-    setPets((lista) => [
-      ...lista,
-      criarPet(
-        `novo-${Date.now()}`
-      ),
+    setPets((listaAtual) => [
+      ...listaAtual,
+      criarPet(`novo-${Date.now()}-${listaAtual.length}`),
     ]);
   }
 
-  function removerPet(
-    id: string
-  ) {
+  function removerPet(id: string) {
+    const pet = pets.find((item) => item.id === id);
+
+    if (modoEdicao && pet && !pet.id.startsWith("novo-")) {
+      alert(
+        "Para não afetar o histórico e os agendamentos deste pet, ele não pode ser removido por aqui. Use a exclusão do cadastro quando realmente precisar excluir o tutor."
+      );
+      return;
+    }
+
     if (pets.length === 1) {
-      alert(
-        "O cliente precisa ter pelo menos um pet."
-      );
-
       return;
     }
 
-    if (
-      modoEdicao &&
-      !id.startsWith("novo-")
-    ) {
-      alert(
-        "Pets já cadastrados não podem ser removidos por este botão. Use a exclusão do cadastro."
-      );
-
-      return;
-    }
-
-    setPets((lista) =>
-      lista.filter(
-        (pet) => pet.id !== id
-      )
+    setPets((listaAtual) =>
+      listaAtual.filter((pet) => pet.id !== id)
     );
   }
 
   async function criarAgendamentosDoPet(
     petId: string,
-    pet: Pet,
-    ciclo = 1,
-    dataInicioForcada?: string
+    pet: Pet
   ) {
-    const dataInicio =
-      dataInicioForcada ||
-      pet.servicos.dataInicio;
+    const datas = gerarDatasAgendamento(
+      pet.servicos.dataInicio,
+      pet.servicos.frequencia
+    );
 
-    if (!dataInicio) {
-      throw new Error(
-        `Informe a data do primeiro banho do pet ${pet.nome}.`
-      );
+    if (datas.length === 0) {
+      return;
     }
 
-    const frequencia =
-      pet.servicos.frequencia;
+    const valorFinal = valorNumerico(
+      pet.servicos.valorTotal
+    );
 
-    const quantidade =
-      quantidadeBanhosPorCiclo(
-        frequencia
-      );
+    const observacoes = [
+      pet.servicos.banhoTosa,
+      ...pet.servicos.tosas,
+      ...pet.servicos.adicionais,
+    ]
+      .filter(Boolean)
+      .join(" + ");
 
-    const intervalo =
-      intervaloEntreBanhos(
-        frequencia
-      );
+    const horario = horarioDoTurno(
+      pet.servicos.turno
+    );
 
-    const valorFinal =
-      valorNumerico(
-        pet.servicos.valorTotal
-      );
+    const agendamentos = datas.map((data) => ({
+      pet_id: petId,
+      servico_id: null,
+      data,
+      horario,
+      status: "Agendado",
+      observacoes,
+      valor_total: valorFinal,
+    }));
 
-    const agendamentos =
-      Array.from(
-        {
-          length: quantidade,
-        },
-        (_, index) => ({
-          pet_id: petId,
-          servico_id: null,
-
-          data: adicionarDias(
-            dataInicio,
-            index *
-              intervalo
-          ),
-
-          horario:
-            horarioDoTurno(
-              pet.servicos
-                .turno
-            ),
-
-          status:
-            "Agendado",
-
-          observacoes:
-            pet.observacoes ||
-            null,
-
-          valor_total:
-            valorFinal,
-
-          servico_nome:
-            pet.servicos
-              .banhoTosa ||
-            null,
-
-          plano:
-            frequencia,
-
-          numero_banho:
-            index + 1,
-
-          ciclo,
-
-          pagamento_status: "Pendente",
-          forma_pagamento_plano: null,
-        })
-      );
-
-    const datasNovas = agendamentos.map((item) => item.data);
-    const { data: existentes, error: erroConsulta } = await supabase
+    const { error } = await supabase
       .from("agendamentos")
-      .select("id,data,status")
-      .eq("pet_id", petId)
-      .in("data", datasNovas);
-    if (erroConsulta) throw erroConsulta;
-    const conflito = (existentes || []).find((item: any) => !statusCancelado(item.status));
-    if (conflito) {
-      throw new Error(`Já existe agendamento para ${pet.nome} em ${formatarData(conflito.data)}. Nenhum novo ciclo foi criado.`);
-    }
-
-    const { error } =
-      await supabase
-        .from("agendamentos")
-        .insert(
-          agendamentos
-        );
+      .insert(agendamentos);
 
     if (error) {
-      throw error;
+      console.error(
+        "Erro ao criar agendamentos do pet:",
+        error
+      );
+
+      throw new Error(
+        `O pet foi cadastrado, mas não foi possível criar a programação automática: ${error.message}`
+      );
     }
   }
 
   async function atualizarClienteExistente() {
     if (!clienteEditandoId) {
       throw new Error(
-        "Cliente não identificado."
+        "Não foi possível identificar o cliente que será editado."
       );
     }
 
-    const {
-      error: erroCliente,
-    } = await supabase
+    const { error: erroCliente } = await supabase
       .from("clientes")
       .update({
-        nome:
-          nomeCliente.trim(),
-
-        cpf:
-          cpf.replace(
-            /\D/g,
-            ""
-          ),
-
-        whatsapp:
-          contato.replace(
-            /\D/g,
-            ""
-          ),
-
-        telefone: null,
-
-        cep:
-          cep.replace(
-            /\D/g,
-            ""
-          ),
-
-        rua:
-          endereco.trim(),
-
-        numero:
-          numero.trim(),
-
-        bairro:
-          bairro.trim(),
-
+        nome: nomeCliente.trim(),
+        whatsapp: contato.trim(),
+        telefone: contato.trim(),
+        cep: cep || null,
+        rua: endereco || null,
+        numero: numero || null,
+        bairro: bairro || null,
         observacoes:
-          observacoesCliente.trim() ||
-          null,
+          observacoesCliente.trim() || null,
       })
-      .eq(
-        "id",
-        clienteEditandoId
-      );
+      .eq("id", clienteEditandoId);
 
     if (erroCliente) {
-      throw erroCliente;
+      console.error(
+        "Erro ao atualizar cliente:",
+        erroCliente
+      );
+
+      throw new Error(
+        `Não foi possível atualizar o cliente: ${erroCliente.message}`
+      );
     }
 
     for (const pet of pets) {
-      const dadosPet = {
-        cliente_id:
-          clienteEditandoId,
+      const valorFinal = valorNumerico(
+        pet.servicos.valorTotal
+      );
 
-        nome:
-          pet.nome.trim(),
-
-        "raça":
-          pet.raca,
-
-        sexo:
-          pet.sexo || null,
-
-        data_nascimento:
-          pet.dataNascimento ||
-          null,
-
-        peso: pet.peso
-          ? Number(
-              pet.peso.replace(
-                ",",
-                "."
-              )
-            )
-          : null,
-
-        observacoes:
-          pet.observacoes.trim() ||
-          null,
-
-        banho_tosa:
-          pet.servicos
-            .banhoTosa ||
-          null,
-
-        tosas:
-          pet.servicos.tosas,
-
-        adicionais:
-          pet.servicos
-            .adicionais,
-
-        frequencia:
-          pet.servicos
-            .frequencia,
-
-        data_inicio:
-          pet.servicos
-            .dataInicio ||
-          null,
-
-        turno:
-          pet.servicos
-            .turno,
-
-        valor_total:
-          valorNumerico(
-            pet.servicos
-              .valorTotal
-          ),
-      };
-
-      if (
-        pet.id.startsWith(
-          "novo-"
-        )
-      ) {
+      if (pet.id.startsWith("novo-")) {
         const {
-          data,
-          error,
+          data: petInserido,
+          error: erroPet,
         } = await supabase
           .from("pets")
-          .insert(
-            dadosPet
-          )
+          .insert({
+            cliente_id: clienteEditandoId,
+            nome: pet.nome.trim(),
+            especie: "Cachorro",
+            "raça": pet.raca || null,
+            sexo: pet.sexo || null,
+            data_nascimento:
+              pet.dataNascimento || null,
+            peso: pet.peso
+              ? Number(
+                  pet.peso.replace(",", ".")
+                )
+              : null,
+            observacoes:
+              pet.observacoes.trim() || null,
+            banho_tosa: pet.servicos.banhoTosa,
+            tosas: pet.servicos.tosas,
+            adicionais: pet.servicos.adicionais,
+            frequencia: pet.servicos.frequencia,
+            data_inicio:
+              pet.servicos.dataInicio || null,
+            turno: pet.servicos.turno,
+            valor_total: valorFinal,
+          })
           .select("id")
           .single();
 
-        if (error) {
-          throw error;
+        if (erroPet || !petInserido) {
+          console.error(
+            "Erro ao adicionar novo pet:",
+            erroPet
+          );
+
+          throw new Error(
+            "Não foi possível adicionar um dos novos pets."
+          );
         }
 
         await criarAgendamentosDoPet(
-          data.id,
+          petInserido.id,
           pet
         );
-      } else {
-        const { error } =
-          await supabase
-            .from("pets")
-            .update(
-              dadosPet
-            )
-            .eq(
-              "id",
-              pet.id
-            );
 
-        if (error) {
-          throw error;
-        }
+        continue;
+      }
+
+      const { error: erroPet } = await supabase
+        .from("pets")
+        .update({
+          nome: pet.nome.trim(),
+          "raça": pet.raca || null,
+          sexo: pet.sexo || null,
+          data_nascimento:
+            pet.dataNascimento || null,
+          peso: pet.peso
+            ? Number(
+                pet.peso.replace(",", ".")
+              )
+            : null,
+          observacoes:
+            pet.observacoes.trim() || null,
+          banho_tosa: pet.servicos.banhoTosa,
+          tosas: pet.servicos.tosas,
+          adicionais: pet.servicos.adicionais,
+          frequencia: pet.servicos.frequencia,
+          data_inicio:
+            pet.servicos.dataInicio || null,
+          turno: pet.servicos.turno,
+          valor_total: valorFinal,
+        })
+        .eq("id", pet.id);
+
+      if (erroPet) {
+        console.error(
+          "Erro ao atualizar pet:",
+          erroPet
+        );
+
+        throw new Error(
+          `Não foi possível atualizar o pet ${pet.nome}: ${erroPet.message}`
+        );
       }
     }
   }
 
   async function salvarCliente() {
-    if (salvando) return;
-
     if (!nomeCliente.trim()) {
+      alert("Informe o nome do tutor.");
+      return;
+    }
+
+    if (!contato.trim()) {
+      alert("Informe o WhatsApp / Telefone.");
+      return;
+    }
+
+    if (pets.length === 0) {
+      alert("Cadastre pelo menos um pet.");
+      return;
+    }
+
+    const petSemNome = pets.find(
+      (pet) => !pet.nome.trim()
+    );
+
+    if (petSemNome) {
+      alert("Informe o nome de todos os pets.");
+      return;
+    }
+
+    const petSemServico = pets.find(
+      (pet) =>
+        !pet.servicos.banhoTosa &&
+        pet.servicos.tosas.length === 0 &&
+        pet.servicos.adicionais.length === 0
+    );
+
+    if (petSemServico) {
       alert(
-        "Informe o nome do cliente."
+        "Selecione pelo menos um serviço (Banho e Tosa, Tosas ou Adicionais) para todos os pets."
+      );
+      return;
+    }
+
+    const petSemData = pets.find(
+      (pet) => !pet.servicos.dataInicio
+    );
+
+    if (petSemData) {
+      alert(
+        "Informe a data do primeiro banho para todos os pets."
+      );
+      return;
+    }
+
+    const petSemValor = pets.find(
+      (pet) => !pet.servicos.valorTotal.trim()
+    );
+
+    if (petSemValor) {
+      alert(
+        "Informe o valor total para todos os pets."
+      );
+      return;
+    }
+
+    const valoresInvalidos = pets.find((pet) => {
+      const valor = valorNumerico(
+        pet.servicos.valorTotal
       );
 
-      return;
-    }
+      return Number.isNaN(valor) || valor < 0;
+    });
 
-    if (!cpfValido(cpf)) {
-      alert("Informe um CPF válido. Confira os dígitos verificadores.");
-      return;
-    }
-
-    if (cpfDuplicado) {
-      alert(`Este CPF já está cadastrado para ${cpfDuplicado.nome}. Abra o cadastro existente.`);
-      return;
-    }
-
-
-    if (
-      contato.replace(
-        /\D/g,
-        ""
-      ).length < 10
-    ) {
+    if (valoresInvalidos) {
       alert(
-        "Informe um WhatsApp ou telefone válido."
+        "Informe um valor total válido para todos os pets."
       );
-
       return;
-    }
-
-    if (!pets.length) {
-      alert(
-        "Cadastre pelo menos um pet."
-      );
-
-      return;
-    }
-
-    for (const pet of pets) {
-      if (!pet.nome.trim()) {
-        alert(
-          "Informe o nome de todos os pets."
-        );
-
-        return;
-      }
-
-      if (
-        !pet.servicos
-          .banhoTosa
-      ) {
-        alert(
-          `Selecione o serviço do pet ${pet.nome}.`
-        );
-
-        return;
-      }
-
-      if (
-        !pet.servicos
-          .dataInicio
-      ) {
-        alert(
-          `Informe a data do primeiro banho do pet ${pet.nome}.`
-        );
-
-        return;
-      }
-
-      if (
-        !pet.servicos
-          .valorTotal
-      ) {
-        alert(
-          `Informe o valor do plano/banho do pet ${pet.nome}.`
-        );
-
-        return;
-      }
-
-    }
-
-    // Impede nomes repetidos entre os pets deste mesmo formulário.
-    const nomes = pets.map((pet) => normalizarNome(pet.nome));
-    if (new Set(nomes).size !== nomes.length) {
-      if (!window.confirm("Há dois pets com o mesmo nome neste cadastro. São pets diferentes? Clique em OK para continuar ou Cancelar para corrigir.")) return;
     }
 
     setSalvando(true);
 
+    let clienteId: string | null = null;
+    const petsCriados: string[] = [];
+
     try {
-      // Confere também no banco, não apenas nos clientes carregados na tela.
-      const { data: cadastrosCpf, error: erroCpf } = await supabase
-        .from("clientes")
-        .select("id,nome,cpf")
-        .not("cpf", "is", null);
-      if (erroCpf) throw erroCpf;
-      const existente = (cadastrosCpf || []).find((item: any) =>
-        somenteDigitos(item.cpf) === somenteDigitos(cpf) &&
-        String(item.id) !== String(clienteEditandoId || "")
-      );
-      if (existente) {
-        alert(`Este CPF já está cadastrado para ${existente.nome}. Abra o cadastro existente para adicionar ou editar pets.`);
-        setBusca(existente.nome);
-        return;
-      }
-
-      if (modoEdicao && clienteEditandoId) {
-        const { data: petsDoCliente, error: erroPetsExistentes } = await supabase
-          .from("pets")
-          .select("id,nome")
-          .eq("cliente_id", clienteEditandoId);
-        if (erroPetsExistentes) throw erroPetsExistentes;
-        const repetido = pets.find((pet) => pet.id.startsWith("novo-") &&
-          (petsDoCliente || []).some((existente: any) => normalizarNome(existente.nome) === normalizarNome(pet.nome))
-        );
-        if (repetido) {
-          if (!window.confirm(`O pet ${repetido.nome} já está cadastrado para este tutor. Tem certeza de que é outro pet com o mesmo nome?`)) return;
-        }
-      }
-
       if (modoEdicao) {
         await atualizarClienteExistente();
 
-        const dadosAtualizados =
-          await carregarClientes();
+        await atualizarLista();
 
-        const clienteAtualizado =
-          dadosAtualizados.find(
-            (cliente) =>
-              cliente.id ===
-              clienteEditandoId
-          );
+        setModalCadastro(false);
+        setModoEdicao(false);
+        setClienteEditandoId(null);
 
-        if (
-          clienteAtualizado
-        ) {
-          setClienteSelecionado(
-            clienteAtualizado
-          );
-        }
-
-        setModalCadastro(
-          false
-        );
-
-        limparFormulario();
+        setNomeCliente("");
+        setContato("");
+        setCep("");
+        setEndereco("");
+        setNumero("");
+        setBairro("");
+        setObservacoesCliente("");
+        setPets([
+          criarPet(`novo-${Date.now()}`),
+        ]);
 
         alert(
           "Cadastro atualizado com sucesso!"
@@ -1703,2347 +966,1761 @@ export default function ClientesPetsPage() {
       }
 
       const {
-        data: cliente,
+        data: clienteInserido,
         error: erroCliente,
       } = await supabase
         .from("clientes")
         .insert({
-          nome:
-            nomeCliente.trim(),
-
-          cpf:
-            cpf.replace(
-              /\D/g,
-              ""
-            ),
-
-          whatsapp:
-            contato.replace(
-              /\D/g,
-              ""
-            ),
-
-          telefone: null,
-
-          cep:
-            cep.replace(
-              /\D/g,
-              ""
-            ),
-
-          rua:
-            endereco.trim(),
-
-          numero:
-            numero.trim(),
-
-          bairro:
-            bairro.trim(),
-
+          nome: nomeCliente.trim(),
+          whatsapp: contato.trim(),
+          telefone: contato.trim(),
+          cep: cep || null,
+          rua: endereco || null,
+          numero: numero || null,
+          bairro: bairro || null,
           observacoes:
-            observacoesCliente.trim() ||
-            null,
+            observacoesCliente.trim() || null,
         })
         .select("id")
         .single();
 
-      if (erroCliente) {
-        throw erroCliente;
+      if (erroCliente || !clienteInserido) {
+        console.error(
+          "Erro ao salvar cliente:",
+          erroCliente
+        );
+
+        throw new Error(
+          "Não foi possível salvar o cliente."
+        );
       }
 
-      const petsCriados: string[] =
-        [];
+      clienteId = clienteInserido.id;
 
-      try {
-        for (const pet of pets) {
-          const {
-            data: petCriado,
-            error,
-          } = await supabase
-            .from("pets")
-            .insert({
-              cliente_id:
-                cliente.id,
-
-              nome:
-                pet.nome.trim(),
-
-              "raça":
-                pet.raca,
-
-              sexo:
-                pet.sexo ||
-                null,
-
-              data_nascimento:
-                pet.dataNascimento ||
-                null,
-
-              peso: pet.peso
-                ? Number(
-                    pet.peso.replace(
-                      ",",
-                      "."
-                    )
-                  )
-                : null,
-
-              observacoes:
-                pet.observacoes.trim() ||
-                null,
-
-              banho_tosa:
-                pet.servicos
-                  .banhoTosa ||
-                null,
-
-              tosas:
-                pet.servicos
-                  .tosas,
-
-              adicionais:
-                pet.servicos
-                  .adicionais,
-
-              frequencia:
-                pet.servicos
-                  .frequencia,
-
-              data_inicio:
-                pet.servicos
-                  .dataInicio ||
-                null,
-
-              turno:
-                pet.servicos
-                  .turno,
-
-              valor_total:
-                valorNumerico(
-                  pet.servicos
-                    .valorTotal
-                ),
-            })
-            .select("id")
-            .single();
-
-          if (error) {
-            throw error;
-          }
-
-          petsCriados.push(
-            petCriado.id
+      for (const pet of pets) {
+        const valorNumericoPet =
+          valorNumerico(
+            pet.servicos.valorTotal
           );
 
-          /*
-           * PRIMEIRO CICLO:
-           *
-           * Avulso = 1 banho
-           * Quinzenal = 2 banhos
-           * Mensal = 4 banhos
-           */
-          await criarAgendamentosDoPet(
-            petCriado.id,
-            pet,
-            1
+        const {
+          data: petInserido,
+          error: erroPet,
+        } = await supabase
+          .from("pets")
+          .insert({
+            cliente_id: clienteInserido.id,
+            nome: pet.nome.trim(),
+            especie: "Cachorro",
+            "raça": pet.raca || null,
+            sexo: pet.sexo || null,
+            data_nascimento:
+              pet.dataNascimento || null,
+            peso: pet.peso
+              ? Number(
+                  pet.peso.replace(",", ".")
+                )
+              : null,
+            observacoes:
+              pet.observacoes.trim() || null,
+            banho_tosa: pet.servicos.banhoTosa,
+            tosas: pet.servicos.tosas,
+            adicionais: pet.servicos.adicionais,
+            frequencia: pet.servicos.frequencia,
+            data_inicio:
+              pet.servicos.dataInicio || null,
+            turno: pet.servicos.turno,
+            valor_total: valorNumericoPet,
+          })
+          .select("id")
+          .single();
+
+        if (erroPet || !petInserido) {
+          console.error(
+            "Erro ao salvar pet:",
+            erroPet
+          );
+
+          throw new Error(
+            "Não foi possível salvar um dos pets."
           );
         }
-      } catch (erroPets) {
-        if (
-          petsCriados.length
-        ) {
-          await supabase
-            .from(
-              "agendamentos"
-            )
-            .delete()
-            .in(
-              "pet_id",
-              petsCriados
-            );
 
-          await supabase
-            .from("pets")
-            .delete()
-            .in(
-              "id",
-              petsCriados
-            );
-        }
+        petsCriados.push(petInserido.id);
 
-        await supabase
-          .from("clientes")
-          .delete()
-          .eq(
-            "id",
-            cliente.id
-          );
-
-        throw erroPets;
+        await criarAgendamentosDoPet(
+          petInserido.id,
+          pet
+        );
       }
 
-      await carregarClientes();
+      await atualizarLista();
 
-      setModalCadastro(
-        false
-      );
+      setModalCadastro(false);
 
       limparFormulario();
 
       alert(
-        "Cliente e pets cadastrados com sucesso!"
+        "Tutor, pets e programação de banho cadastrados com sucesso!"
       );
-    } catch (error: any) {
+    } catch (erro) {
       console.error(
-        "ERRO AO SALVAR:",
-        error
+        "Erro completo ao salvar cadastro:",
+        erro
       );
 
+      if (!modoEdicao) {
+        if (petsCriados.length > 0) {
+          await supabase
+            .from("pets")
+            .delete()
+            .in("id", petsCriados);
+        }
+
+        if (clienteId) {
+          await supabase
+            .from("clientes")
+            .delete()
+            .eq("id", clienteId);
+        }
+      }
+
       alert(
-        `Não foi possível salvar o cadastro: ${
-          error?.message ||
-          "erro desconhecido"
-        }`
+        erro instanceof Error
+          ? erro.message
+          : "Não foi possível salvar o cadastro."
       );
     } finally {
       setSalvando(false);
     }
   }
 
-  async function excluirCliente() {
-    if (!clienteSelecionado)
+  async function excluirCliente(cliente: Cliente) {
+    if (excluindo) {
       return;
+    }
 
-    const confirmou =
-      window.confirm(
-        `Tem certeza que deseja excluir o cadastro de ${clienteSelecionado.nome}?`
-      );
+    const confirmar = window.confirm(
+      `Tem certeza que deseja excluir o cadastro de "${cliente.nome}"?\n\nTodos os pets vinculados a este tutor e seus agendamentos também serão excluídos.\n\nEssa ação não pode ser desfeita.`
+    );
 
-    if (!confirmou) return;
+    if (!confirmar) {
+      return;
+    }
 
     setExcluindo(true);
 
     try {
-      const idsPets =
-        clienteSelecionado.pets.map(
-          (pet) => pet.id
+      const idsPets = cliente.pets.map(
+        (pet) => pet.id
+      );
+
+      if (idsPets.length > 0) {
+        const { error: erroAgendamentos } =
+          await supabase
+            .from("agendamentos")
+            .delete()
+            .in("pet_id", idsPets);
+
+        if (erroAgendamentos) {
+          console.error(
+            "Erro ao excluir agendamentos:",
+            erroAgendamentos
+          );
+        }
+      }
+
+      const { error: erroPets } = await supabase
+        .from("pets")
+        .delete()
+        .eq("cliente_id", cliente.id);
+
+      if (erroPets) {
+        throw new Error(
+          `Erro ao excluir os pets: ${erroPets.message}`
         );
+      }
 
-      if (
-        idsPets.length
-      ) {
-        const {
-          error:
-            erroAgendamentos,
-        } = await supabase
-          .from(
-            "agendamentos"
-          )
-          .delete()
-          .in(
-            "pet_id",
-            idsPets
-          );
+      const { error: erroCliente } = await supabase
+        .from("clientes")
+        .delete()
+        .eq("id", cliente.id);
 
-        if (
-          erroAgendamentos
-        ) {
-          throw erroAgendamentos;
-        }
-
-        const {
-          error: erroPets,
-        } = await supabase
-          .from("pets")
-          .delete()
-          .in(
-            "id",
-            idsPets
-          );
-
-        if (erroPets) {
-          throw erroPets;
-        }
+      if (erroCliente) {
+        throw new Error(
+          `Erro ao excluir o cliente: ${erroCliente.message}`
+        );
       }
 
       const {
-        error: erroCliente,
+        data: clienteAindaExiste,
+        error: erroVerificacao,
       } = await supabase
         .from("clientes")
-        .delete()
-        .eq(
-          "id",
-          clienteSelecionado.id
-        );
+        .select("id")
+        .eq("id", cliente.id)
+        .maybeSingle();
 
-      if (erroCliente) {
-        throw erroCliente;
+      if (erroVerificacao) {
+        throw new Error(
+          `Não foi possível confirmar a exclusão: ${erroVerificacao.message}`
+        );
       }
 
-      setClienteSelecionado(
-        null
+      if (clienteAindaExiste) {
+        throw new Error(
+          "O Supabase não confirmou a exclusão do cliente."
+        );
+      }
+
+      const dadosAtualizados =
+        await carregarClientes();
+
+      setClientes(dadosAtualizados);
+      setClienteSelecionado(null);
+
+      alert("Cadastro excluído com sucesso!");
+    } catch (erro) {
+      console.error(
+        "Erro completo ao excluir cadastro:",
+        erro
       );
 
-      await carregarClientes();
-
       alert(
-        "Cadastro excluído com sucesso."
-      );
-    } catch (error: any) {
-      console.error(error);
-
-      alert(
-        `Não foi possível excluir o cadastro: ${
-          error?.message ||
-          "erro desconhecido"
-        }`
+        erro instanceof Error
+          ? erro.message
+          : "Não foi possível excluir o cadastro."
       );
     } finally {
       setExcluindo(false);
     }
   }
 
-  async function recarregarESelecionarCliente(
-    clienteId: string
-  ) {
-    const dados =
-      await carregarClientes();
+  const clientesFiltrados = useMemo(() => {
+    const texto = busca.trim().toLowerCase();
 
-    const atualizado =
-      dados.find(
-        (cliente) =>
-          cliente.id ===
-          clienteId
+    if (!texto) {
+      return clientes;
+    }
+
+    return clientes.filter((cliente) => {
+      const encontrouCliente = cliente.nome
+        .toLowerCase()
+        .includes(texto);
+
+      const encontrouContato = cliente.contato
+        .toLowerCase()
+        .includes(texto);
+
+      const encontrouPet = cliente.pets.some((pet) =>
+        pet.nome.toLowerCase().includes(texto)
       );
 
-    setClienteSelecionado(
-      atualizado || null
-    );
-  }
+      const encontrouRaca = cliente.pets.some((pet) =>
+        pet.raca.toLowerCase().includes(texto)
+      );
 
-  async function retirarPetDaAgenda(cliente: Cliente, pet: Pet) {
-    if (retirandoPetId) return;
-    const confirmou = window.confirm(
-      `Retirar ${pet.nome} da agenda?\n\nTodos os agendamentos de hoje em diante que ainda não foram concluídos serão CANCELADOS.\n\nO cadastro, os banhos realizados, os pagamentos e o histórico serão mantidos.`
-    );
-    if (!confirmou) return;
-
-    setRetirandoPetId(pet.id);
-    try {
-      // Consulta os registros no momento da ação, evitando cancelar dados desatualizados.
-      const { data, error: erroBusca } = await supabase
-        .from("agendamentos")
-        .select("id,data,status")
-        .eq("pet_id", pet.id)
-        .gte("data", hojeISO());
-      if (erroBusca) throw erroBusca;
-
-      const ids = (data || [])
-        .filter((item: any) => !statusCancelado(item.status) && !statusConcluido(item.status))
-        .map((item: any) => item.id);
-
-      if (ids.length === 0) {
-        alert("Este pet não possui agendamentos futuros pendentes para cancelar.");
-        await recarregarESelecionarCliente(cliente.id);
-        return;
-      }
-
-      const { error } = await supabase
-        .from("agendamentos")
-        .update({ status: "Cancelado" })
-        .in("id", ids)
-        .eq("pet_id", pet.id);
-      if (error) throw error;
-
-      await recarregarESelecionarCliente(cliente.id);
-      alert(`${ids.length} agendamento(s) de ${pet.nome} cancelado(s). O cadastro e o histórico foram preservados.`);
-    } catch (error: any) {
-      console.error("ERRO AO RETIRAR PET DA AGENDA:", error);
-      alert(`Não foi possível retirar o pet da agenda: ${error?.message || "erro desconhecido"}`);
-    } finally {
-      setRetirandoPetId(null);
-    }
-  }
-
-  function abrirRenovacao(
-    cliente: Cliente,
-    pet: Pet
-  ) {
-    setModalPlanoPet({
-      clienteId:
-        cliente.id,
-      petId: pet.id,
+      return (
+        encontrouCliente ||
+        encontrouContato ||
+        encontrouPet ||
+        encontrouRaca
+      );
     });
+  }, [clientes, busca]);
 
-    setFrequenciaRenovacao(
-      pet.servicos
-        .frequencia ===
-        "Avulso"
-        ? "Mensal"
-        : pet.servicos
-            .frequencia
-    );
-
-    setDataInicioRenovacao(
-      hojeISO()
-    );
-
-    setTurnoRenovacao(
-      pet.servicos.turno
-    );
-
-    setValorRenovacao(
-      pet.servicos
-        .valorTotal
-    );
-
-  }
-
-  function fecharRenovacao() {
-    if (!renovandoPetId) {
-      setModalPlanoPet(null);
-    }
-  }
-
-  async function renovarPlano() {
-    if (!modalPlanoPet)
-      return;
-
-    const cliente =
-      clientes.find(
-        (item) =>
-          item.id ===
-          modalPlanoPet.clienteId
-      );
-
-    const pet =
-      cliente?.pets.find(
-        (item) =>
-          item.id ===
-          modalPlanoPet.petId
-      );
-
-    if (!cliente || !pet) {
-      alert(
-        "Não foi possível localizar o pet."
-      );
-
-      return;
+  const clientesVisiveis = useMemo(() => {
+    if (busca.trim()) {
+      return clientesFiltrados;
     }
 
-    if (!dataInicioRenovacao) {
-      alert(
-        "Informe a data do primeiro banho do novo ciclo."
-      );
-
-      return;
-    }
-
-    if (!valorRenovacao) {
-      alert(
-        "Informe o valor do novo ciclo."
-      );
-
-      return;
-    }
-
-    setRenovandoPetId(
-      pet.id
-    );
-
-    try {
-      const {
-        data:
-          agendamentosExistentes,
-        error,
-      } = await supabase
-        .from(
-          "agendamentos"
-        )
-        .select(
-          "id,ciclo"
-        )
-        .eq(
-          "pet_id",
-          pet.id
-        );
-
-      if (error) {
-        throw error;
-      }
-
-       // Não cria outro ciclo enquanto ainda houver agendamentos futuros ativos.
-       const { data: futuros, error: erroFuturos } = await supabase
-         .from("agendamentos")
-         .select("id,data,status")
-         .eq("pet_id", pet.id)
-         .gte("data", hojeISO());
-       if (erroFuturos) throw erroFuturos;
-       if ((futuros || []).some((item: any) => !statusCancelado(item.status) && !statusConcluido(item.status))) {
-         throw new Error("Este pet já possui banhos futuros agendados. Confira a agenda antes de criar outro ciclo.");
-       }
-
-      const maiorCiclo =
-        (
-          agendamentosExistentes ||
-          []
-        ).reduce(
-          (
-            maior: number,
-            item: any
-          ) =>
-            Math.max(
-              maior,
-              Number(
-                item.ciclo ||
-                  1
-              )
-            ),
-          0
-        );
-
-      const novoCiclo =
-        maiorCiclo + 1;
-
-      const novaPet: Pet = {
-        ...pet,
-
-        servicos: {
-          ...pet.servicos,
-
-          frequencia:
-            frequenciaRenovacao,
-
-          dataInicio:
-            dataInicioRenovacao,
-
-          turno:
-            turnoRenovacao,
-
-          valorTotal:
-            valorRenovacao,
-        },
-      };
-
-      /*
-       * SOMENTE O NOVO CICLO É CRIADO.
-       */
-      await criarAgendamentosDoPet(
-        pet.id,
-        novaPet,
-        novoCiclo,
-        dataInicioRenovacao
-      );
-
-      /*
-       * Atualiza somente a configuração
-       * atual do pet.
-       */
-      const {
-        error: erroPet,
-      } = await supabase
-        .from("pets")
-        .update({
-          frequencia:
-            frequenciaRenovacao,
-
-          data_inicio:
-            dataInicioRenovacao,
-
-          turno:
-            turnoRenovacao,
-
-          valor_total:
-            valorNumerico(
-              valorRenovacao
-            ),
-        })
-        .eq(
-          "id",
-          pet.id
-        );
-
-      if (erroPet) {
-        throw erroPet;
-      }
-
-      setModalPlanoPet(
-        null
-      );
-
-      await recarregarESelecionarCliente(
-        cliente.id
-      );
-
-      alert(
-        `Ciclo ${novoCiclo} criado com sucesso!\n\n${quantidadeBanhosPorCiclo(
-          frequenciaRenovacao
-        )} banho(s) foram adicionados à agenda.`
-      );
-    } catch (error: any) {
-      console.error(
-        "ERRO AO RENOVAR:",
-        error
-      );
-
-      alert(
-        `Não foi possível renovar o plano: ${
-          error?.message ||
-          "erro desconhecido"
-        }`
-      );
-    } finally {
-      setRenovandoPetId(
-        null
-      );
-    }
-  }
-
-  const clientesFiltrados =
-    useMemo(() => {
-      const termo =
-        busca
-          .trim()
-          .toLowerCase();
-
-      if (!termo) {
-        return clientes;
-      }
-
-      return clientes.filter(
-        (cliente) => {
-          const dadosCliente = [
-            cliente.nome,
-            cliente.cpf,
-            cliente.contato,
-            cliente.cep,
-            cliente.endereco,
-            cliente.bairro,
-          ]
-            .join(" ")
-            .toLowerCase();
-
-          const dadosPets =
-            cliente.pets
-              .map(
-                (pet) =>
-                  [
-                    pet.nome,
-                    pet.raca,
-                    pet.servicos
-                      .banhoTosa,
-                  ].join(" ")
-              )
-              .join(" ")
-              .toLowerCase();
-
-          return (
-            dadosCliente.includes(
-              termo
-            ) ||
-            dadosPets.includes(
-              termo
-            )
-          );
-        }
-      );
-    }, [
-      clientes,
-      busca,
-    ]);
-
-  const clientesVisiveis = busca.trim() || mostrarTodos
-    ? clientesFiltrados
-    : clientesFiltrados.slice(0, 8);
+    return clientesFiltrados.slice(0, 5);
+  }, [clientesFiltrados, busca]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="fixed inset-y-0 left-0 z-40 h-screen">
-        <MenuLateral />
-      </div>
+    <main className="min-h-screen bg-[#f6f7f9]">
+      <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
 
-      <main className="ml-0 min-h-screen pt-0 lg:ml-64">
-        <div className="border-b border-slate-200 bg-white">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 lg:px-8">
+        {/* TOPO */}
+        <div className="mb-7">
+          <a
+            href="/"
+            className="mb-6 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-gray-50"
+          >
+            ← Início
+          </a>
+
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-sm font-semibold text-emerald-600">
-                AGROMINAS
-              </p>
+              <div className="mb-2 flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-900 text-lg">
+                  🐾
+                </span>
 
-              <h1 className="mt-1 text-2xl font-bold text-slate-900">
+                <span className="text-sm font-bold tracking-wide text-gray-500">
+                  SPA PET AGROMINAS
+                </span>
+              </div>
+
+              <h1 className="text-3xl font-bold tracking-tight text-gray-900 md:text-4xl">
                 Clientes & Pets
               </h1>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Cadastre e acompanhe os clientes,
-                pets e planos de banho e tosa.
+              <p className="mt-2 max-w-xl text-gray-500">
+                Encontre rapidamente os tutores e seus pets,
+                consulte os dados e mantenha os cadastros
+                organizados.
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-
-              <button
-                type="button"
-                onClick={abrirCadastro}
-                className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700"
-              >
-                + Novo cliente
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={abrirCadastro}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800"
+            >
+              <span className="text-lg">+</span>
+              Novo cliente
+            </button>
           </div>
         </div>
 
-        <div className="mx-auto max-w-7xl space-y-6 px-5 py-6 lg:px-8">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3">
-              <h2 className="font-bold text-slate-900">
+        {/* BUSCA */}
+        <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm md:p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="flex-1">
+              <label className="mb-2 block text-sm font-semibold text-gray-800">
                 Buscar cliente ou pet
-              </h2>
+              </label>
 
-              <p className="text-sm text-slate-500">
-                Pesquise pelo nome do tutor,
-                contato, CPF ou nome do pet.
-              </p>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg text-gray-400">
+                  🔎
+                </span>
+
+                <input
+                  type="text"
+                  value={busca}
+                  onChange={(e) =>
+                    setBusca(e.target.value)
+                  }
+                  placeholder="Digite o nome do tutor, pet, telefone ou raça..."
+                  className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-3.5 pl-12 pr-4 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                />
+
+                {busca && (
+                  <button
+                    type="button"
+                    onClick={() => setBusca("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-sm text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="relative">
-              <input
-                value={busca}
-                onChange={(e) =>
-                  setBusca(
-                    e.target.value
-                  )
-                }
-                placeholder="Digite o nome do cliente ou pet..."
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 pl-11 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-              />
+            <div className="rounded-2xl bg-gray-50 px-4 py-3 text-sm text-gray-500">
+              <span className="font-semibold text-gray-800">
+                {busca
+                  ? clientesFiltrados.length
+                  : clientes.length}
+              </span>{" "}
+              {busca
+                ? clientesFiltrados.length === 1
+                  ? "resultado encontrado"
+                  : "resultados encontrados"
+                : clientes.length === 1
+                ? "cliente cadastrado"
+                : "clientes cadastrados"}
+            </div>
+          </div>
+        </section>
 
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                🔎
-              </span>
+        {/* LISTA */}
+        <section className="mt-7">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                {busca
+                  ? "Resultados da busca"
+                  : "Cadastros"}
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                {busca
+                  ? "Confira os cadastros encontrados."
+                  : clientes.length > 5
+                  ? "Mostrando uma prévia dos cadastros. Use a busca para encontrar qualquer cliente."
+                  : "Tutors e pets cadastrados no sistema."}
+              </p>
             </div>
           </div>
 
           {carregando ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
-              <div className="text-sm text-slate-500">
-                Carregando clientes...
-              </div>
-            </div>
-          ) : clientesVisiveis.length ===
-            0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
-              <div className="text-4xl">
+            <div className="rounded-3xl border border-gray-200 bg-white p-12 text-center shadow-sm">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-xl">
                 🐾
               </div>
 
-              <h2 className="mt-3 text-lg font-bold text-slate-900">
-                Nenhum cadastro encontrado
-              </h2>
+              <p className="mt-4 font-semibold text-gray-700">
+                Carregando cadastros...
+              </p>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Cadastre um cliente e seus pets
-                para começar.
+              <p className="mt-1 text-sm text-gray-400">
+                Aguarde um momento.
+              </p>
+            </div>
+          ) : clientesVisiveis.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-gray-300 bg-white p-12 text-center shadow-sm">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 text-3xl">
+                🐾
+              </div>
+
+              <h3 className="mt-5 text-lg font-bold text-gray-800">
+                {busca
+                  ? "Nenhum cadastro encontrado"
+                  : "Nenhum cliente cadastrado"}
+              </h3>
+
+              <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
+                {busca
+                  ? "Tente pesquisar pelo nome do tutor, nome do pet, telefone ou raça."
+                  : "Cadastre o primeiro tutor e seus pets para começar a utilizar o sistema."}
               </p>
 
               {!busca && (
                 <button
-                  onClick={
-                    abrirCadastro
-                  }
-                  className="mt-5 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-700"
+                  type="button"
+                  onClick={abrirCadastro}
+                  className="mt-6 rounded-xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800"
                 >
-                  Cadastrar primeiro cliente
+                  + Cadastrar primeiro cliente
                 </button>
               )}
             </div>
           ) : (
-            <div className="grid gap-5">
-              {clientesVisiveis.map(
-                (cliente) => (
-                  <div
-                    key={
-                      cliente.id
-                    }
-                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+            <>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {clientesVisiveis.map((cliente) => (
+                  <article
+                    key={cliente.id}
+                    className="group overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                   >
-                    <div className="border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-white px-5 py-5">
-                      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                        <div>
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 text-xl">
-                              👤
-                            </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setClienteSelecionado(cliente)
+                      }
+                      className="w-full text-left"
+                    >
+                      {/* CLIENTE */}
+                      <div className="p-5 md:p-6">
+                        <div className="flex items-start gap-4">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gray-900 text-lg font-bold text-white">
+                            {cliente.nome
+                              .trim()
+                              .charAt(0)
+                              .toUpperCase() || "?"}
+                          </div>
 
-                            <div>
-                              <h2 className="font-bold text-slate-900">
-                                {
-                                  cliente.nome
-                                }
-                              </h2>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <h3 className="truncate text-lg font-bold text-gray-900">
+                                  {cliente.nome}
+                                </h3>
 
-                              <p className="text-sm text-slate-500">
-                                {cliente.contato ||
-                                  "Sem contato"}
+                                <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-500">
+                                  <span>📱</span>
+                                  <span className="truncate">
+                                    {cliente.contato ||
+                                      "Contato não informado"}
+                                  </span>
+                                </p>
+                              </div>
 
-                                {cliente.cpf
-                                  ? ` • CPF ${formatarCpf(
-                                      cliente.cpf
-                                    )}`
-                                  : ""}
-                              </p>
+                              <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
+                                {cliente.pets.length}{" "}
+                                {cliente.pets.length === 1
+                                  ? "pet"
+                                  : "pets"}
+                              </span>
                             </div>
                           </div>
                         </div>
 
-                        <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Pets
-                          </p>
-
-                          <p className="text-lg font-bold text-slate-900">
-                            {
-                              cliente
-                                .pets
-                                .length
-                            }
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 p-5 md:grid-cols-2">
-                      {cliente.pets.length ===
-                        0 ? (
-                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500 md:col-span-2">
-                          Este cliente ainda não possui pets cadastrados.
-                        </div>
-                      ) : (
-                        cliente.pets.map(
-                          (pet) => (
-                            <div
-                              key={
-                                pet.id
-                              }
-                              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-xl shadow-sm">
+                        {/* PETS */}
+                        {cliente.pets.length > 0 ? (
+                          <div className="mt-5 space-y-3">
+                            {cliente.pets.map((pet) => (
+                              <div
+                                key={pet.id}
+                                className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4 transition group-hover:border-gray-200"
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-lg shadow-sm">
                                     🐶
                                   </div>
 
-                                  <div>
-                                    <h3 className="font-bold text-slate-900">
-                                      {
-                                        pet.nome
-                                      }
-                                    </h3>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                      <div className="min-w-0">
+                                        <p className="font-bold text-gray-800">
+                                          {pet.nome}
+                                        </p>
 
-                                    <p className="text-xs text-slate-500">
-                                      {pet.raca ||
-                                        "Raça não informada"}
-                                    </p>
+                                        <p className="mt-1 truncate text-xs text-gray-500">
+                                          {pet.raca ||
+                                            "Raça não informada"}
+                                        </p>
+                                      </div>
+
+                                      <div className="flex flex-wrap gap-2 sm:justify-end">
+                                        <span className="rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 shadow-sm">
+                                          {pet.servicos.turno ===
+                                          "Tarde"
+                                            ? "🌤️ 13:30"
+                                            : "☀️ 08:00"}
+                                        </span>
+
+                                        {pet.servicos
+                                          .valorTotal && (
+                                          <span className="rounded-lg bg-white px-2.5 py-1.5 text-xs font-bold text-gray-800 shadow-sm">
+                                            {formatarMoeda(
+                                              pet.servicos
+                                                .valorTotal
+                                            )}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-3 flex items-center gap-2">
+                                      <span className="text-sm">
+                                        🛁
+                                      </span>
+
+                                      <span className="text-sm font-medium text-gray-700">
+                                        {pet.servicos
+                                          .banhoTosa ||
+                                          pet.servicos.tosas.concat(pet.servicos.adicionais).join(" + ") ||
+                                          "Serviço não informado"}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
-
-                                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">
-                                  {pet.servicos
-                                    .turno ===
-                                  "Tarde"
-                                    ? "🌤️ 13:30"
-                                    : "☀️ 08:00"}
-                                </span>
                               </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-5 rounded-2xl border border-dashed border-gray-200 p-5 text-center">
+                            <p className="text-sm text-gray-400">
+                              Nenhum pet cadastrado.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </button>
 
-                              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                                <div className="rounded-xl bg-white p-3">
-                                  <p className="text-slate-400">
-                                    Plano
-                                  </p>
-
-                                  <p className="mt-1 font-bold text-slate-800">
-                                    {
-                                      pet.servicos
-                                        .frequencia
-                                    }
-                                  </p>
-                                </div>
-
-                                <div className="rounded-xl bg-white p-3">
-                                  <p className="text-slate-400">
-                                    Valor
-                                  </p>
-
-                                  <p className="mt-1 font-bold text-slate-800">
-                                    {formatarMoeda(
-                                      pet.servicos
-                                        .valorTotal
-                                    )}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="mt-2 rounded-xl bg-white p-3 text-xs">
-                                <p className="text-slate-400">
-                                  Serviço
-                                </p>
-
-                                <p className="mt-1 font-semibold text-slate-800">
-                                  {pet.servicos
-                                    .banhoTosa ||
-                                    "Não informado"}
-                                </p>
-                              </div>
-
-                              {pet.retiradoDaAgenda && (
-                                <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Sem agendamentos futuros • cadastro preservado</div>
-                              )}
-                              {pet.plano && (
-                                <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3">
-                                  <div>
-                                    <p className="text-xs text-slate-400">
-                                      Ciclo{" "}
-                                      {
-                                        pet.plano
-                                          .ciclo
-                                      }
-                                    </p>
-
-                                    <p className="text-sm font-bold text-slate-800">
-                                      {
-                                        pet.plano
-                                          .banhosConcluidos
-                                      }
-                                      /
-                                      {
-                                        pet.plano
-                                          .totalBanhos
-                                      }{" "}
-                                      banhos
-                                    </p>
-                                  </div>
-
-                                  <span
-                                    className={`rounded-full px-3 py-1 text-xs font-bold ${
-                                      pet.plano
-                                        .pagamento ===
-                                      "Pago"
-                                        ? "bg-emerald-100 text-emerald-700"
-                                        : "bg-red-100 text-red-700"
-                                    }`}
-                                  >
-                                    {pet.plano
-                                      .pagamento ===
-                                    "Pago"
-                                      ? "🟢 Plano pago"
-                                      : "🔴 Plano pendente"}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          )
-                        )
-                      )}
-                    </div>
-
-                    <div className="flex justify-end border-t border-slate-100 px-5 py-4">
-                      <button
-                        onClick={() =>
-                          setClienteSelecionado(
-                            cliente
-                          )
-                        }
-                        className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800"
-                      >
-                        Visualizar
-                      </button>
+                    {/* AÇÕES */}
+                    <div className="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/50 px-5 py-4 md:px-6">
+                      <span className="text-xs text-gray-400">
+                        Clique no cadastro para visualizar
+                      </span>
 
                       <button
+                        type="button"
                         onClick={() =>
-                          abrirEdicao(
-                            cliente
-                          )
+                          abrirEdicao(cliente)
                         }
-                        className="ml-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                        className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:border-gray-300 hover:bg-gray-50"
                       >
-                        Editar
+                        ✏️ Editar
                       </button>
                     </div>
-                  </div>
-                )
-              )}
-            </div>
-          )}
-        </div>
-          {!busca.trim() && clientesFiltrados.length > 8 && (
-            <div className="mx-auto max-w-7xl px-5 pb-8 text-center lg:px-8">
-              <button type="button" onClick={() => setMostrarTodos((atual) => !atual)}
-                className="rounded-xl border border-emerald-300 bg-white px-5 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50">
-                {mostrarTodos ? "Mostrar apenas 8 clientes" : `Ver todos os ${clientesFiltrados.length} clientes`}
-              </button>
-            </div>
-          )}
-      </main>
-
-      {/* ========================================================= */}
-      {/* MODAL CADASTRO / EDIÇÃO                                    */}
-      {/* ========================================================= */}
-
-      {modalCadastro && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm">
-          <div className="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
-              <div>
-                <p className="text-sm font-semibold text-emerald-600">
-                  SPA PET AGROMINAS
-                </p>
-
-                <h2 className="text-xl font-bold text-slate-900">
-                  {modoEdicao
-                    ? "Editar cliente e pets"
-                    : "Novo cliente e pets"}
-                </h2>
+                  </article>
+                ))}
               </div>
 
-              <button
-                onClick={
-                  fecharCadastro
-                }
-                className="rounded-full p-2 text-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                ×
-              </button>
-            </div>
+              {!busca && clientes.length > 5 && (
+                <div className="mt-5 rounded-2xl border border-gray-200 bg-white px-5 py-4 text-center shadow-sm">
+                  <p className="text-sm text-gray-500">
+                    Existem{" "}
+                    <strong className="text-gray-800">
+                      {clientes.length - 5}
+                    </strong>{" "}
+                    outros cadastros.
+                  </p>
 
-            <div className="overflow-y-auto p-6">
-              <div className="space-y-6">
-                <section className="rounded-2xl border border-slate-200 p-5">
-                  <div className="mb-5">
-                    <h3 className="font-bold text-slate-900">
-                      Dados do cliente
-                    </h3>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Use a busca acima para encontrar qualquer tutor ou pet.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
 
-                    <p className="text-sm text-slate-500">
-                      Informações do tutor.
-                    </p>
+      {/* MODAL CADASTRO / EDIÇÃO */}
+      {modalCadastro && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-950/50 p-3 backdrop-blur-sm md:p-6">
+          <div className="mx-auto my-4 max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl md:my-8">
+
+            <div className="border-b border-gray-100 bg-gray-50/80 px-5 py-5 md:px-8">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-900 text-base">
+                      🐾
+                    </span>
+
+                    <span className="text-xs font-bold tracking-wide text-gray-500">
+                      SPA PET AGROMINAS
+                    </span>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="md:col-span-2">
-                      <label className="text-sm font-semibold text-slate-700">
-                        Nome
-                      </label>
+                  <h2 className="mt-4 text-2xl font-bold text-gray-900">
+                    {modoEdicao
+                      ? "Editar cliente"
+                      : "Novo cliente"}
+                  </h2>
 
-                      <input
-                        value={
-                          nomeCliente
-                        }
-                        onChange={(e) =>
-                          setNomeCliente(
-                            e.target
-                              .value
-                          )
-                        }
-                        placeholder="Nome completo"
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">
-                        CPF
-                      </label>
-
-                      <input
-                        value={formatarCpf(
-                          cpf
-                        )}
-                        onChange={(e) =>
-                          setCpf(
-                            e.target
-                              .value
-                          )
-                        }
-                        placeholder="000.000.000-00"
-                        inputMode="numeric"
-                        maxLength={14}
-                        className={`mt-1 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 ${cpfDuplicado ? "border-red-400 bg-red-50 focus:ring-red-100" : "border-slate-300 focus:border-emerald-500 focus:ring-emerald-100"}`}
-                      />
-                      {cpfNumeros.length === 11 && (
-                        <p className={`mt-2 text-sm font-semibold ${cpfDuplicado || !cpfValido(cpfNumeros) ? "text-red-600" : "text-emerald-700"}`} role="status">
-                          {!cpfValido(cpfNumeros)
-                            ? "CPF inválido. Confira os números."
-                            : cpfDuplicado
-                            ? `CPF já cadastrado para ${cpfDuplicado.nome}. Não é necessário preencher novamente.`
-                            : verificacaoCpf?.cpf !== cpfNumeros || verificacaoCpf.estado === "consultando"
-                            ? "Consultando CPF no cadastro..."
-                            : verificacaoCpf.estado === "erro"
-                            ? "Não foi possível consultar agora. A verificação será repetida ao salvar."
-                            : "CPF válido e disponível para cadastro."}
-                        </p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">
-                        WhatsApp ou telefone
-                      </label>
-
-                      <input
-                        value={formatarContato(
-                          contato
-                        )}
-                        onChange={(e) =>
-                          setContato(
-                            e.target
-                              .value
-                          )
-                        }
-                        placeholder="(00) 00000-0000"
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">
-                        CEP
-                      </label>
-
-                      <div className="relative">
-                        <input
-                          value={formatarCep(
-                            cep
-                          )}
-                          onChange={(e) => {
-                            const valor =
-                              formatarCep(
-                                e
-                                  .target
-                                  .value
-                              );
-
-                            setCep(
-                              valor
-                            );
-
-                            if (
-                              valor.replace(
-                                /\D/g,
-                                ""
-                              )
-                                .length ===
-                              8
-                            ) {
-                              buscarCep(
-                                valor
-                              );
-                            }
-                          }}
-                          placeholder="00000-000"
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                        />
-
-                        {buscandoCep && (
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-600">
-                            Buscando...
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">
-                        Rua
-                      </label>
-
-                      <input
-                        value={
-                          endereco
-                        }
-                        onChange={(e) =>
-                          setEndereco(
-                            e.target
-                              .value
-                          )
-                        }
-                        placeholder="Rua"
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">
-                        Número
-                      </label>
-
-                      <input
-                        value={
-                          numero
-                        }
-                        onChange={(e) =>
-                          setNumero(
-                            e.target
-                              .value
-                          )
-                        }
-                        placeholder="Número"
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">
-                        Bairro
-                      </label>
-
-                      <input
-                        value={
-                          bairro
-                        }
-                        onChange={(e) =>
-                          setBairro(
-                            e.target
-                              .value
-                          )
-                        }
-                        placeholder="Bairro"
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="text-sm font-semibold text-slate-700">
-                        Observações
-                      </label>
-
-                      <textarea
-                        value={
-                          observacoesCliente
-                        }
-                        onChange={(e) =>
-                          setObservacoesCliente(
-                            e.target
-                              .value
-                          )
-                        }
-                        rows={3}
-                        placeholder="Observações sobre o cliente..."
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                      />
-                    </div>
-                  </div>
-                </section>
-
-                {pets.map(
-                  (pet, index) => (
-                    <section
-                      key={
-                        pet.id
-                      }
-                      className="rounded-2xl border border-slate-200 p-5"
-                    >
-                      <div className="mb-5 flex items-center justify-between">
-                        <div>
-                          <h3 className="font-bold text-slate-900">
-                            🐾 Pet{" "}
-                            {index +
-                              1}
-                          </h3>
-
-                          <p className="text-sm text-slate-500">
-                            Dados do pet.
-                          </p>
-                        </div>
-
-                        {pets.length >
-                          1 && (
-                          <button
-                            onClick={() =>
-                              removerPet(
-                                pet.id
-                              )
-                            }
-                            className="rounded-xl px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
-                          >
-                            Remover
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div>
-                          <label className="text-sm font-semibold text-slate-700">
-                            Nome do pet
-                          </label>
-
-                          <input
-                            value={
-                              pet.nome
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              atualizarPet(
-                                pet.id,
-                                "nome",
-                                e
-                                  .target
-                                  .value
-                              )
-                            }
-                            placeholder="Nome do pet"
-                            className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-sm font-semibold text-slate-700">
-                            Raça
-                          </label>
-
-                          <select
-                            value={
-                              pet.raca
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              atualizarPet(
-                                pet.id,
-                                "raca",
-                                e
-                                  .target
-                                  .value
-                              )
-                            }
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                          >
-                            <option value="">
-                              Selecione a raça
-                            </option>
-
-                            {racas.map(
-                              (
-                                raca
-                              ) => (
-                                <option
-                                  key={
-                                    raca
-                                  }
-                                  value={
-                                    raca
-                                  }
-                                >
-                                  {
-                                    raca
-                                  }
-                                </option>
-                              )
-                            )}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="text-sm font-semibold text-slate-700">
-                            Sexo
-                          </label>
-
-                          <select
-                            value={
-                              pet.sexo
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              atualizarPet(
-                                pet.id,
-                                "sexo",
-                                e
-                                  .target
-                                  .value
-                              )
-                            }
-                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                          >
-                            <option value="">
-                              Selecione
-                            </option>
-
-                            <option value="Macho">
-                              Macho
-                            </option>
-
-                            <option value="Fêmea">
-                              Fêmea
-                            </option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="text-sm font-semibold text-slate-700">
-                            Data de nascimento
-                          </label>
-
-                          <input
-                            type="date"
-                            value={
-                              pet.dataNascimento
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              atualizarPet(
-                                pet.id,
-                                "dataNascimento",
-                                e
-                                  .target
-                                  .value
-                              )
-                            }
-                            className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-sm font-semibold text-slate-700">
-                            Peso
-                          </label>
-
-                          <input
-                            type="number"
-                            step="0.1"
-                            value={
-                              pet.peso
-                            }
-                            onChange={(
-                              e
-                            ) =>
-                              atualizarPet(
-                                pet.id,
-                                "peso",
-                                e
-                                  .target
-                                  .value
-                              )
-                            }
-                            placeholder="Ex.: 8,5"
-                            className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="mt-6 border-t border-slate-200 pt-6">
-                        <h4 className="font-bold text-slate-900">
-                          Serviço de banho e tosa
-                        </h4>
-
-                        <div className="mt-3 grid gap-2 md:grid-cols-3">
-                          {opcoesBanhoTosa.map(
-                            (
-                              opcao
-                            ) => (
-                              <button
-                                key={
-                                  opcao
-                                }
-                                type="button"
-                                onClick={() =>
-                                  atualizarServico(
-                                    pet.id,
-                                    "banhoTosa",
-                                    opcao
-                                  )
-                                }
-                                className={`rounded-xl border px-4 py-3 text-left text-sm font-semibold transition ${
-                                  pet
-                                    .servicos
-                                    .banhoTosa ===
-                                  opcao
-                                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                                    : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300"
-                                }`}
-                              >
-                                {
-                                  opcao
-                                }
-                              </button>
-                            )
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mt-6">
-                        <h4 className="font-bold text-slate-900">
-                          Tosas
-                        </h4>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {opcoesTosas.map(
-                            (
-                              opcao
-                            ) => {
-                              const selecionado =
-                                pet.servicos.tosas.includes(
-                                  opcao
-                                );
-
-                              return (
-                                <button
-                                  key={
-                                    opcao
-                                  }
-                                  type="button"
-                                  onClick={() =>
-                                    alternarListaServico(
-                                      pet.id,
-                                      "tosas",
-                                      opcao
-                                    )
-                                  }
-                                  className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
-                                    selecionado
-                                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                                      : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
-                                  }`}
-                                >
-                                  {
-                                    opcao
-                                  }
-                                </button>
-                              );
-                            }
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mt-6">
-                        <h4 className="font-bold text-slate-900">
-                          Adicionais
-                        </h4>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {opcoesAdicionais.map(
-                            (
-                              opcao
-                            ) => {
-                              const selecionado =
-                                pet.servicos.adicionais.includes(
-                                  opcao
-                                );
-
-                              return (
-                                <button
-                                  key={
-                                    opcao
-                                  }
-                                  type="button"
-                                  onClick={() =>
-                                    alternarListaServico(
-                                      pet.id,
-                                      "adicionais",
-                                      opcao
-                                    )
-                                  }
-                                  className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
-                                    selecionado
-                                      ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                                      : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
-                                  }`}
-                                >
-                                  {
-                                    opcao
-                                  }
-                                </button>
-                              );
-                            }
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
-                        <div className="mb-5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl">
-                              🔄
-                            </span>
-
-                            <h4 className="font-bold text-slate-900">
-                              Plano e Renovação
-                            </h4>
-                          </div>
-
-                          <p className="mt-1 text-sm text-slate-500">
-                            Defina o ciclo atual do
-                            pet. A renovação cria
-                            um novo ciclo sem alterar
-                            os anteriores.
-                          </p>
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-3">
-                          {(["Avulso", "Quinzenal", "Mensal"] as Frequencia[]).map(
-                            (
-                              frequencia: Frequencia
-                            ) => (
-                              <button
-                                key={
-                                  frequencia
-                                }
-                                type="button"
-                                onClick={() =>
-                                  atualizarServico(
-                                    pet.id,
-                                    "frequencia",
-                                    frequencia
-                                  )
-                                }
-                                className={`rounded-xl border p-4 text-left transition ${
-                                  pet
-                                    .servicos
-                                    .frequencia ===
-                                  frequencia
-                                    ? "border-emerald-500 bg-white shadow-sm"
-                                    : "border-slate-200 bg-white/70 hover:border-emerald-300"
-                                }`}
-                              >
-                                <p className="font-bold text-slate-900">
-                                  {
-                                    frequencia
-                                  }
-                                </p>
-
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {descricaoFrequencia(
-                                    frequencia
-                                  )}
-                                </p>
-                              </button>
-                            )
-                          )}
-                        </div>
-
-                        <div className="mt-4 grid gap-4 md:grid-cols-3">
-                          <div>
-                            <label className="text-sm font-semibold text-slate-700">
-                              Primeiro banho
-                            </label>
-
-                            <input
-                              type="date"
-                              value={
-                                pet
-                                  .servicos
-                                  .dataInicio
-                              }
-                              onChange={(
-                                e
-                              ) =>
-                                atualizarServico(
-                                  pet.id,
-                                  "dataInicio",
-                                  e
-                                    .target
-                                    .value
-                                )
-                              }
-                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-sm font-semibold text-slate-700">
-                              Turno
-                            </label>
-
-                            <select
-                              value={
-                                pet
-                                  .servicos
-                                  .turno
-                              }
-                              onChange={(
-                                e
-                              ) =>
-                                atualizarServico(
-                                  pet.id,
-                                  "turno",
-                                  e
-                                    .target
-                                    .value
-                                )
-                              }
-                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                            >
-                              <option value="Manhã">
-                                Manhã — 08:00
-                              </option>
-
-                              <option value="Tarde">
-                                Tarde — 13:30
-                              </option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="text-sm font-semibold text-slate-700">
-                              Valor do ciclo
-                            </label>
-
-                            <input
-                              value={
-                                pet
-                                  .servicos
-                                  .valorTotal
-                              }
-                              onChange={(
-                                e
-                              ) =>
-                                atualizarServico(
-                                  pet.id,
-                                  "valorTotal",
-                                  e
-                                    .target
-                                    .value
-                                )
-                              }
-                              placeholder="Ex.: 160,00"
-                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                            />
-                          </div>
-                        </div>
-
-                        {modoEdicao && (
-                          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-                            <strong>
-                              Atenção:
-                            </strong>{" "}
-                            alterar o plano aqui não
-                            altera os ciclos já existentes
-                            na agenda. Para criar um novo
-                            ciclo, use{" "}
-                            <strong>
-                              Renovar plano
-                            </strong>.
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="mt-6">
-                        <label className="text-sm font-semibold text-slate-700">
-                          Observações do pet
-                        </label>
-
-                        <textarea
-                          value={
-                            pet.observacoes
-                          }
-                          onChange={(e) =>
-                            atualizarPet(
-                              pet.id,
-                              "observacoes",
-                              e.target.value
-                            )
-                          }
-                          rows={3}
-                          placeholder="Comportamento, cuidados, observações importantes..."
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                        />
-                      </div>
-                    </section>
-                  )
-                )}
+                  <p className="mt-1 text-sm text-gray-500">
+                    {modoEdicao
+                      ? "Atualize os dados do tutor e dos pets."
+                      : "Cadastre o tutor e todos os pets vinculados."}
+                  </p>
+                </div>
 
                 <button
                   type="button"
-                  onClick={
-                    adicionarPet
-                  }
-                  className="w-full rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50 py-4 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100"
+                  onClick={fecharCadastro}
+                  disabled={salvando}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition hover:bg-white hover:text-gray-700 disabled:opacity-50"
                 >
-                  + Adicionar outro pet
+                  ✕
                 </button>
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+            <div className="p-5 md:p-8">
+              {/* TUTOR */}
+              <section className="rounded-3xl border border-gray-200 bg-white p-5 md:p-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100">
+                    👤
+                  </div>
+
+                  <div>
+                    <h3 className="font-bold text-gray-900">
+                      Dados do tutor
+                    </h3>
+
+                    <p className="text-xs text-gray-500">
+                      Informações de contato e endereço.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700">
+                      Nome do tutor *
+                    </label>
+
+                    <input
+                      value={nomeCliente}
+                      onChange={(e) =>
+                        setNomeCliente(e.target.value)
+                      }
+                      placeholder="Nome completo"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700">
+                      WhatsApp / Telefone *
+                    </label>
+
+                    <input
+                      value={contato}
+                      onChange={(e) =>
+                        setContato(e.target.value)
+                      }
+                      placeholder="(00) 00000-0000"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700">
+                      CEP
+                    </label>
+
+                    <input
+                      value={cep}
+                      maxLength={8}
+                      onChange={(e) =>
+                        buscarCep(e.target.value)
+                      }
+                      placeholder="00000000"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                    />
+
+                    {buscandoCep && (
+                      <p className="mt-1.5 text-xs text-gray-400">
+                        Buscando endereço...
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700">
+                      Rua
+                    </label>
+
+                    <input
+                      value={endereco}
+                      onChange={(e) =>
+                        setEndereco(e.target.value)
+                      }
+                      placeholder="Rua"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700">
+                      Número
+                    </label>
+
+                    <input
+                      value={numero}
+                      onChange={(e) =>
+                        setNumero(e.target.value)
+                      }
+                      placeholder="Número"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700">
+                      Bairro
+                    </label>
+
+                    <input
+                      value={bairro}
+                      onChange={(e) =>
+                        setBairro(e.target.value)
+                      }
+                      placeholder="Bairro"
+                      className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label className="text-sm font-semibold text-gray-700">
+                    Observações do tutor
+                  </label>
+
+                  <textarea
+                    value={observacoesCliente}
+                    onChange={(e) =>
+                      setObservacoesCliente(e.target.value)
+                    }
+                    rows={3}
+                    placeholder="Observações..."
+                    className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                  />
+                </div>
+              </section>
+
+              {/* PETS */}
+              <div className="mt-6 space-y-6">
+                {pets.map((pet, index) => (
+                  <section
+                    key={pet.id}
+                    className="rounded-3xl border border-gray-200 bg-white p-5 md:p-6"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-lg">
+                          🐶
+                        </div>
+
+                        <div>
+                          <h3 className="font-bold text-gray-900">
+                            Pet {index + 1}
+                          </h3>
+
+                          <p className="text-xs text-gray-500">
+                            Informações e programação do pet.
+                          </p>
+                        </div>
+                      </div>
+
+                      {pets.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removerPet(pet.id)
+                          }
+                          className="rounded-xl px-3 py-2 text-sm font-semibold text-red-500 transition hover:bg-red-50"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+
+                    {/* DADOS DO PET */}
+                    <div className="mt-6 grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">
+                          Nome do pet *
+                        </label>
+
+                        <input
+                          value={pet.nome}
+                          onChange={(e) =>
+                            atualizarPet(
+                              pet.id,
+                              "nome",
+                              e.target.value
+                            )
+                          }
+                          placeholder="Nome do pet"
+                          className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">
+                          Raça
+                        </label>
+
+                        <input
+                          list={`racas-${pet.id}`}
+                          value={pet.raca}
+                          onChange={(e) =>
+                            atualizarPet(
+                              pet.id,
+                              "raca",
+                              e.target.value
+                            )
+                          }
+                          placeholder="Digite para pesquisar a raça..."
+                          className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                        />
+
+                        <datalist id={`racas-${pet.id}`}>
+                          {racas.map((raca) => (
+                            <option
+                              key={raca}
+                              value={raca}
+                            />
+                          ))}
+                        </datalist>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">
+                          Sexo
+                        </label>
+
+                        <select
+                          value={pet.sexo}
+                          onChange={(e) =>
+                            atualizarPet(
+                              pet.id,
+                              "sexo",
+                              e.target.value
+                            )
+                          }
+                          className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                        >
+                          <option value="">
+                            Selecione
+                          </option>
+                          <option value="Macho">
+                            Macho
+                          </option>
+                          <option value="Fêmea">
+                            Fêmea
+                          </option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">
+                          Data de nascimento
+                        </label>
+
+                        <input
+                          type="date"
+                          value={pet.dataNascimento}
+                          onChange={(e) =>
+                            atualizarPet(
+                              pet.id,
+                              "dataNascimento",
+                              e.target.value
+                            )
+                          }
+                          className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-semibold text-gray-700">
+                          Peso
+                        </label>
+
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={pet.peso}
+                          onChange={(e) =>
+                            atualizarPet(
+                              pet.id,
+                              "peso",
+                              e.target.value
+                            )
+                          }
+                          placeholder="Ex.: 8,5"
+                          className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                        />
+                      </div>
+                    </div>
+
+                    {/* SERVIÇO PRINCIPAL */}
+                    <div className="mt-7 border-t border-gray-100 pt-7">
+                      <h4 className="font-bold text-gray-900">
+                        🛁 Banho e Tosa
+                      </h4>
+
+                      <p className="mt-1 text-sm text-gray-500">
+                        Opcional: selecione Banho e Tosa ou escolha somente Tosas e/ou Adicionais abaixo.
+                      </p>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        {opcoesBanhoTosa.map((opcao) => {
+                          const selecionado =
+                            pet.servicos.banhoTosa ===
+                            opcao;
+
+                          return (
+                            <button
+                              type="button"
+                              key={opcao}
+                              onClick={() =>
+                                atualizarServico(
+                                  pet.id,
+                                  "banhoTosa",
+                                  selecionado ? "" : opcao
+                                )
+                              }
+                              className={`rounded-2xl border p-4 text-left transition ${
+                                selecionado
+                                  ? "border-gray-900 bg-gray-900 text-white shadow-sm"
+                                  : "border-gray-200 bg-gray-50 hover:bg-white hover:shadow-sm"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-xl">
+                                  {selecionado
+                                    ? "☑"
+                                    : "☐"}
+                                </span>
+
+                                <span className="text-sm font-semibold">
+                                  {opcao}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* TOSAS */}
+                    <div className="mt-7 border-t border-gray-100 pt-7">
+                      <h4 className="font-bold text-gray-900">
+                        ✂️ Tosas
+                      </h4>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {opcoesTosas.map((opcao) => {
+                          const selecionado =
+                            pet.servicos.tosas.includes(
+                              opcao
+                            );
+
+                          return (
+                            <button
+                              type="button"
+                              key={opcao}
+                              onClick={() =>
+                                alternarListaServico(
+                                  pet.id,
+                                  "tosas",
+                                  opcao
+                                )
+                              }
+                              className={`flex items-center gap-3 rounded-2xl border p-4 text-left transition ${
+                                selecionado
+                                  ? "border-gray-300 bg-gray-50"
+                                  : "border-gray-200 hover:bg-gray-50"
+                              }`}
+                            >
+                              <span className="text-xl">
+                                {selecionado
+                                  ? "☑"
+                                  : "☐"}
+                              </span>
+
+                              <span className="text-sm font-semibold text-gray-700">
+                                {opcao}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* ADICIONAIS */}
+                    <div className="mt-7 border-t border-gray-100 pt-7">
+                      <h4 className="font-bold text-gray-900">
+                        ➕ Adicionais
+                      </h4>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {opcoesAdicionais.map((opcao) => {
+                          const selecionado =
+                            pet.servicos.adicionais.includes(
+                              opcao
+                            );
+
+                          return (
+                            <button
+                              type="button"
+                              key={opcao}
+                              onClick={() =>
+                                alternarListaServico(
+                                  pet.id,
+                                  "adicionais",
+                                  opcao
+                                )
+                              }
+                              className={`flex items-center gap-3 rounded-2xl border p-4 text-left transition ${
+                                selecionado
+                                  ? "border-gray-300 bg-gray-50"
+                                  : "border-gray-200 hover:bg-gray-50"
+                              }`}
+                            >
+                              <span className="text-xl">
+                                {selecionado
+                                  ? "☑"
+                                  : "☐"}
+                              </span>
+
+                              <span className="text-sm font-semibold text-gray-700">
+                                {opcao}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* FREQUÊNCIA */}
+                    <div className="mt-7 border-t border-gray-100 pt-7">
+                      <h4 className="font-bold text-gray-900">
+                        🔄 Frequência e agenda
+                      </h4>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        {[
+                          "Avulso",
+                          "Quinzenal",
+                          "Mensal",
+                        ].map((opcao) => {
+                          const selecionado =
+                            pet.servicos.frequencia ===
+                            opcao;
+
+                          return (
+                            <button
+                              type="button"
+                              key={opcao}
+                              onClick={() =>
+                                atualizarServico(
+                                  pet.id,
+                                  "frequencia",
+                                  opcao
+                                )
+                              }
+                              className={`rounded-2xl border p-4 text-left transition ${
+                                selecionado
+                                  ? "border-gray-900 bg-gray-900 text-white"
+                                  : "border-gray-200 bg-gray-50 hover:bg-white"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-xl">
+                                  {selecionado
+                                    ? "◉"
+                                    : "○"}
+                                </span>
+
+                                <span className="text-sm font-semibold">
+                                  {opcao}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-5">
+                        <label className="text-sm font-semibold text-gray-700">
+                          Primeiro banho *
+                        </label>
+
+                        <input
+                          type="date"
+                          value={
+                            pet.servicos.dataInicio
+                          }
+                          onChange={(e) =>
+                            atualizarServico(
+                              pet.id,
+                              "dataInicio",
+                              e.target.value
+                            )
+                          }
+                          className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                        />
+                      </div>
+
+                      {/* TURNO */}
+                      <div className="mt-5">
+                        <label className="text-sm font-semibold text-gray-700">
+                          Turno do banho *
+                        </label>
+
+                        <p className="mt-1 text-xs text-gray-400">
+                          O pet será programado para o horário escolhido.
+                        </p>
+
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          {(["Manhã", "Tarde"] as Turno[]).map(
+                            (opcao) => {
+                              const selecionado =
+                                pet.servicos.turno ===
+                                opcao;
+
+                              return (
+                                <button
+                                  type="button"
+                                  key={opcao}
+                                  onClick={() =>
+                                    atualizarServico(
+                                      pet.id,
+                                      "turno",
+                                      opcao
+                                    )
+                                  }
+                                  className={`rounded-2xl border p-4 text-left transition ${
+                                    selecionado
+                                      ? "border-gray-900 bg-gray-900 text-white shadow-sm"
+                                      : "border-gray-200 bg-gray-50 hover:bg-white"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="font-bold">
+                                        {opcao ===
+                                        "Manhã"
+                                          ? "☀️ Manhã"
+                                          : "🌤️ Tarde"}
+                                      </p>
+
+                                      <p
+                                        className={`mt-1 text-sm ${
+                                          selecionado
+                                            ? "text-gray-300"
+                                            : "text-gray-500"
+                                        }`}
+                                      >
+                                        {opcao ===
+                                        "Manhã"
+                                          ? "Atendimento às 08:00"
+                                          : "Atendimento às 13:30"}
+                                      </p>
+                                    </div>
+
+                                    <span className="text-xl">
+                                      {selecionado
+                                        ? "◉"
+                                        : "○"}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            }
+                          )}
+                        </div>
+
+                        <p className="mt-3 rounded-xl bg-gray-50 px-4 py-3 text-xs text-gray-500">
+                          {pet.servicos.frequencia ===
+                            "Avulso" &&
+                            "Será criado somente este agendamento."}
+
+                          {pet.servicos.frequencia ===
+                            "Quinzenal" &&
+                            "O sistema criará automaticamente os banhos a cada 14 dias durante 12 meses."}
+
+                          {pet.servicos.frequencia ===
+                            "Mensal" &&
+                            "O sistema criará automaticamente os banhos mensais durante 12 meses."}
+                        </p>
+
+                        {modoEdicao &&
+                          !pet.id.startsWith("novo-") && (
+                            <p className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700">
+                              ⚠️ Alterar a frequência, a data
+                              ou o turno muda a configuração
+                              habitual do pet, mas não altera
+                              os agendamentos que já estão na
+                              Agenda.
+                            </p>
+                          )}
+                      </div>
+                    </div>
+
+                    {/* VALOR */}
+                    <div className="mt-7 border-t border-gray-100 pt-7">
+                      <h4 className="font-bold text-gray-900">
+                        💰 Valor habitual
+                      </h4>
+
+                      <p className="mt-1 text-sm text-gray-500">
+                        Informe o valor total habitual deste pet.
+                      </p>
+
+                      <div className="mt-4 max-w-sm">
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-semibold text-gray-400">
+                            R$
+                          </span>
+
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={
+                              pet.servicos.valorTotal
+                            }
+                            onChange={(e) =>
+                              atualizarServico(
+                                pet.id,
+                                "valorTotal",
+                                e.target.value.replace(
+                                  /[^\d,]/g,
+                                  ""
+                                )
+                              )
+                            }
+                            placeholder="0,00"
+                            className="w-full rounded-xl border border-gray-200 bg-gray-50 py-3 pl-12 pr-4 text-lg font-bold outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                          />
+                        </div>
+
+                        {pet.servicos.valorTotal && (
+                          <p className="mt-2 text-sm text-gray-500">
+                            Valor cadastrado:{" "}
+                            <strong className="text-gray-800">
+                              {formatarMoeda(
+                                pet.servicos.valorTotal
+                              )}
+                            </strong>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* OBSERVAÇÕES */}
+                    <div className="mt-7 border-t border-gray-100 pt-7">
+                      <label className="text-sm font-semibold text-gray-700">
+                        Observações do pet
+                      </label>
+
+                      <textarea
+                        value={pet.observacoes}
+                        onChange={(e) =>
+                          atualizarPet(
+                            pet.id,
+                            "observacoes",
+                            e.target.value
+                          )
+                        }
+                        rows={3}
+                        placeholder="Comportamento, cuidados especiais, observações..."
+                        className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 outline-none transition focus:border-gray-400 focus:bg-white focus:ring-4 focus:ring-gray-100"
+                      />
+                    </div>
+                  </section>
+                ))}
+              </div>
+
+              {/* ADICIONAR PET */}
               <button
-                onClick={
-                  fecharCadastro
-                }
-                disabled={salvando}
-                className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                type="button"
+                onClick={adicionarPet}
+                className="mt-6 w-full rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-4 text-sm font-semibold text-gray-700 transition hover:bg-white"
               >
-                Cancelar
+                + Adicionar outro pet
               </button>
 
-              <button
-                onClick={
-                  salvarCliente
-                }
-                disabled={salvando}
-                className="rounded-xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {salvando
-                  ? "Salvando..."
-                  : modoEdicao
-                  ? "Salvar alterações"
-                  : "Cadastrar cliente"}
-              </button>
+              {/* BOTÕES */}
+              <div className="mt-8 flex flex-col-reverse gap-3 border-t border-gray-100 pt-6 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={fecharCadastro}
+                  disabled={salvando}
+                  className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={salvarCliente}
+                  disabled={salvando}
+                  className="rounded-xl bg-gray-900 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {salvando
+                    ? modoEdicao
+                      ? "Salvando alterações..."
+                      : "Salvando e criando agenda..."
+                    : modoEdicao
+                    ? "Salvar alterações"
+                    : "Salvar cliente"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* MODAL DETALHES                                             */}
-      {/* ========================================================= */}
-
+      {/* MODAL DETALHES */}
       {clienteSelecionado && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm">
-          <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
-              <div>
-                <p className="text-sm font-semibold text-emerald-600">
-                  CLIENTE
-                </p>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-950/50 p-3 backdrop-blur-sm md:p-6">
+          <div className="mx-auto my-4 max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl md:my-8">
 
-                <h2 className="text-xl font-bold text-slate-900">
-                  {
-                    clienteSelecionado.nome
-                  }
-                </h2>
+            {/* CABEÇALHO */}
+            <div className="border-b border-gray-100 bg-gray-50/80 px-5 py-6 md:px-8">
+              <div className="flex items-start gap-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gray-900 text-xl font-bold text-white">
+                  {clienteSelecionado.nome
+                    .trim()
+                    .charAt(0)
+                    .toUpperCase() || "?"}
+                </div>
 
-                <p className="text-sm text-slate-500">
-                  {
-                    clienteSelecionado
-                      .contato ||
-                    "Sem contato"
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                    Cliente cadastrado
+                  </p>
+
+                  <h2 className="mt-1 truncate text-2xl font-bold text-gray-900">
+                    {clienteSelecionado.nome}
+                  </h2>
+
+                  <p className="mt-1 text-sm text-gray-500">
+                    📱{" "}
+                    {clienteSelecionado.contato ||
+                      "Contato não informado"}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setClienteSelecionado(null)
                   }
-                </p>
+                  disabled={excluindo}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-white hover:text-gray-700 disabled:opacity-50"
+                >
+                  ✕
+                </button>
               </div>
-
-              <button
-                onClick={() =>
-                  setClienteSelecionado(
-                    null
-                  )
-                }
-                className="rounded-full p-2 text-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                ×
-              </button>
             </div>
 
-            <div className="overflow-y-auto p-6">
-              <div className="mb-6 grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase text-slate-400">
-                    CPF
-                  </p>
+            <div className="p-5 md:p-8">
+              {/* DADOS DO TUTOR */}
+              <section>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100">
+                    👤
+                  </div>
 
-                  <p className="mt-1 font-semibold text-slate-800">
-                    {formatarCpf(
-                      clienteSelecionado.cpf
-                    ) || "-"}
-                  </p>
+                  <div>
+                    <h3 className="font-bold text-gray-900">
+                      Dados do tutor
+                    </h3>
+
+                    <p className="text-xs text-gray-500">
+                      Informações cadastradas.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase text-slate-400">
-                    Endereço
-                  </p>
-
-                  <p className="mt-1 font-semibold text-slate-800">
-                    {
-                      clienteSelecionado
-                        .endereco
-                    }
-
-                    {clienteSelecionado
-                      .numero
-                      ? `, ${clienteSelecionado.numero}`
-                      : ""}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase text-slate-400">
-                    Bairro
-                  </p>
-
-                  <p className="mt-1 font-semibold text-slate-800">
-                    {
-                      clienteSelecionado
-                        .bairro ||
-                      "-"
-                    }
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-5">
-                {clienteSelecionado.pets.map(
-                  (pet) => (
+                <div className="mt-5 grid gap-3 md:grid-cols-2">
+                  {[
+                    [
+                      "Nome",
+                      clienteSelecionado.nome,
+                    ],
+                    [
+                      "WhatsApp / Telefone",
+                      clienteSelecionado.contato ||
+                        "Não informado",
+                    ],
+                    [
+                      "CEP",
+                      clienteSelecionado.cep ||
+                        "Não informado",
+                    ],
+                    [
+                      "Rua",
+                      clienteSelecionado.endereco ||
+                        "Não informado",
+                    ],
+                    [
+                      "Número",
+                      clienteSelecionado.numero ||
+                        "Não informado",
+                    ],
+                    [
+                      "Bairro",
+                      clienteSelecionado.bairro ||
+                        "Não informado",
+                    ],
+                  ].map(([label, valor]) => (
                     <div
-                      key={
-                        pet.id
-                      }
-                      className="rounded-2xl border border-slate-200 p-5"
+                      key={label}
+                      className="rounded-2xl bg-gray-50 p-4"
                     >
-                      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-2xl">
-                            🐾
-                          </div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        {label}
+                      </p>
 
-                          <div>
-                            <h3 className="text-lg font-bold text-slate-900">
-                              {
-                                pet.nome
-                              }
-                            </h3>
+                      <p className="mt-1 text-sm font-medium text-gray-800">
+                        {valor}
+                      </p>
+                    </div>
+                  ))}
+                </div>
 
-                            <p className="text-sm text-slate-500">
-                              {pet.raca ||
-                                "Raça não informada"}
-                            </p>
-                          </div>
-                        </div>
+                {clienteSelecionado.observacoes && (
+                  <div className="mt-3 rounded-2xl bg-gray-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      Observações
+                    </p>
 
-                        <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700">
-                          {pet.servicos
-                            .turno ===
-                          "Tarde"
-                            ? "🌤️ 13:30"
-                            : "☀️ 08:00"}
-                        </span>
-                      </div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
+                      {clienteSelecionado.observacoes}
+                    </p>
+                  </div>
+                )}
+              </section>
 
-                      <div className="mt-5 grid gap-3 md:grid-cols-4">
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <p className="text-xs text-slate-400">
-                            Serviço
-                          </p>
+              {/* PETS */}
+              <section className="mt-8 border-t border-gray-100 pt-8">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100">
+                      🐶
+                    </div>
 
-                          <p className="mt-1 text-sm font-bold text-slate-800">
-                            {
-                              pet.servicos
-                                .banhoTosa ||
-                              "-"
-                            }
-                          </p>
-                        </div>
+                    <div>
+                      <h3 className="font-bold text-gray-900">
+                        Pets
+                      </h3>
 
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <p className="text-xs text-slate-400">
-                            Plano
-                          </p>
+                      <p className="text-xs text-gray-500">
+                        Pets vinculados a este tutor.
+                      </p>
+                    </div>
+                  </div>
 
-                          <p className="mt-1 text-sm font-bold text-slate-800">
-                            {
-                              pet.servicos
-                                .frequencia
-                            }
-                          </p>
-                        </div>
+                  <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-600">
+                    {clienteSelecionado.pets.length}{" "}
+                    {clienteSelecionado.pets.length === 1
+                      ? "pet"
+                      : "pets"}
+                  </span>
+                </div>
 
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <p className="text-xs text-slate-400">
-                            Valor
-                          </p>
-
-                          <p className="mt-1 text-sm font-bold text-slate-800">
-                            {formatarMoeda(
-                              pet.servicos
-                                .valorTotal
-                            )}
-                          </p>
-                        </div>
-
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <p className="text-xs text-slate-400">
-                            Peso
-                          </p>
-
-                          <p className="mt-1 text-sm font-bold text-slate-800">
-                            {pet.peso
-                              ? `${pet.peso} kg`
-                              : "-"}
-                          </p>
-                        </div>
-                      </div>
-
-                       <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                         <div className="min-w-0 flex-1">
-                           <p className="text-sm font-bold text-slate-800">
-                             {pet.agendamentosFuturos > 0
-                               ? `${pet.agendamentosFuturos} agendamento(s) futuro(s)`
-                               : "Sem agendamentos futuros"}
-                           </p>
-                           <p className="mt-1 text-xs text-slate-500">
-                             Retirar da agenda não exclui o pet, o cliente ou os pagamentos.
-                           </p>
-                         </div>
-                         {pet.agendamentosFuturos > 0 ? (
-                           <button type="button" onClick={() => retirarPetDaAgenda(clienteSelecionado, pet)}
-                             disabled={!!retirandoPetId}
-                             className="rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-bold text-amber-800 hover:bg-amber-50 disabled:opacity-50">
-                             {retirandoPetId === pet.id ? "Cancelando..." : "Retirar pet da agenda"}
-                           </button>
-                         ) : (
-                           <button type="button" onClick={() => abrirRenovacao(clienteSelecionado, pet)}
-                             className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
-                             Agendar novamente
-                           </button>
-                         )}
-                       </div>
-
-                      <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
-                        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xl">
-                                🔄
-                              </span>
-
-                              <h4 className="font-bold text-slate-900">
-                                Plano e Renovação
-                              </h4>
+                {clienteSelecionado.pets.length === 0 ? (
+                  <div className="mt-5 rounded-2xl border border-dashed border-gray-300 p-8 text-center">
+                    <p className="text-sm text-gray-500">
+                      Nenhum pet cadastrado para este tutor.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-5 space-y-5">
+                    {clienteSelecionado.pets.map(
+                      (pet, index) => (
+                        <div
+                          key={pet.id}
+                          className="rounded-3xl border border-gray-200 p-5 md:p-6"
+                        >
+                          <div className="flex items-start gap-4">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gray-100 text-xl">
+                              🐶
                             </div>
 
-                            <p className="mt-1 text-sm text-slate-500">
-                              Acompanhe o ciclo atual
-                              e faça a renovação quando
-                              ele terminar.
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                                Pet {index + 1}
+                              </p>
+
+                              <h4 className="mt-1 text-xl font-bold text-gray-900">
+                                {pet.nome}
+                              </h4>
+
+                              <p className="mt-1 text-sm text-gray-500">
+                                {pet.raca ||
+                                  "Raça não informada"}
+                              </p>
+                            </div>
+
+                            <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600">
+                              {pet.servicos.frequencia ||
+                                "Avulso"}
+                            </span>
+                          </div>
+
+                          {/* RESUMO */}
+                          <div className="mt-5 grid gap-3 md:grid-cols-3">
+                            <div className="rounded-2xl bg-gray-50 p-4">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                                Serviço
+                              </p>
+
+                              <p className="mt-1 text-sm font-bold text-gray-800">
+                                {pet.servicos.banhoTosa ||
+                                  "Não informado"}
+                              </p>
+                            </div>
+
+                            <div className="rounded-2xl bg-gray-50 p-4">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                                Horário
+                              </p>
+
+                              <p className="mt-1 text-sm font-bold text-gray-800">
+                                {pet.servicos.turno ===
+                                "Tarde"
+                                  ? "🌤️ Tarde — 13:30"
+                                  : "☀️ Manhã — 08:00"}
+                              </p>
+                            </div>
+
+                            <div className="rounded-2xl bg-gray-50 p-4">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                                Valor
+                              </p>
+
+                              <p className="mt-1 text-sm font-bold text-gray-800">
+                                {pet.servicos.valorTotal
+                                  ? formatarMoeda(
+                                      pet.servicos.valorTotal
+                                    )
+                                  : "Não informado"}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* DADOS */}
+                          <div className="mt-5 grid gap-3 border-t border-gray-100 pt-5 md:grid-cols-2">
+                            <p className="text-sm text-gray-600">
+                              <strong className="text-gray-800">
+                                Raça:
+                              </strong>{" "}
+                              {pet.raca ||
+                                "Não informado"}
+                            </p>
+
+                            <p className="text-sm text-gray-600">
+                              <strong className="text-gray-800">
+                                Sexo:
+                              </strong>{" "}
+                              {pet.sexo ||
+                                "Não informado"}
+                            </p>
+
+                            <p className="text-sm text-gray-600">
+                              <strong className="text-gray-800">
+                                Data de nascimento:
+                              </strong>{" "}
+                              {pet.dataNascimento
+                                ? new Date(
+                                    `${pet.dataNascimento}T00:00:00`
+                                  ).toLocaleDateString(
+                                    "pt-BR"
+                                  )
+                                : "Não informado"}
+                            </p>
+
+                            <p className="text-sm text-gray-600">
+                              <strong className="text-gray-800">
+                                Peso:
+                              </strong>{" "}
+                              {pet.peso
+                                ? `${pet.peso} kg`
+                                : "Não informado"}
+                            </p>
+
+                            <p className="text-sm text-gray-600">
+                              <strong className="text-gray-800">
+                                Primeiro banho:
+                              </strong>{" "}
+                              {pet.servicos.dataInicio
+                                ? new Date(
+                                    `${pet.servicos.dataInicio}T00:00:00`
+                                  ).toLocaleDateString(
+                                    "pt-BR"
+                                  )
+                                : "Não informado"}
                             </p>
                           </div>
 
-                          {pet.plano && pet.agendamentosFuturos > 0 &&
-                            pet.plano
-                              .renovacaoDisponivel && (
-                              <button
-                                onClick={() =>
-                                  abrirRenovacao(
-                                    clienteSelecionado,
-                                    pet
+                          {/* TOSAS */}
+                          {pet.servicos.tosas.length >
+                            0 && (
+                            <div className="mt-5 border-t border-gray-100 pt-5">
+                              <p className="text-sm font-bold text-gray-700">
+                                ✂️ Tosas
+                              </p>
+
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {pet.servicos.tosas.map(
+                                  (tosa) => (
+                                    <span
+                                      key={tosa}
+                                      className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600"
+                                    >
+                                      {tosa}
+                                    </span>
                                   )
-                                }
-                                className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
-                              >
-                                Renovar plano
-                              </button>
-                            )}
-                        </div>
-
-                        {pet.plano ? (
-                          <>
-                            <div className="mt-5 grid gap-3 md:grid-cols-4">
-                              <div className="rounded-xl bg-white p-4">
-                                <p className="text-xs text-slate-400">
-                                  Plano atual
-                                </p>
-
-                                <p className="mt-1 font-bold text-slate-900">
-                                  {
-                                    pet.servicos
-                                      .frequencia
-                                  }
-                                </p>
-
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {descricaoFrequencia(
-                                    pet.servicos
-                                      .frequencia
-                                  )}
-                                </p>
-                              </div>
-
-                              <div className="rounded-xl bg-white p-4">
-                                <p className="text-xs text-slate-400">
-                                  Ciclo atual
-                                </p>
-
-                                <p className="mt-1 font-bold text-slate-900">
-                                  Ciclo{" "}
-                                  {
-                                    pet.plano
-                                      .ciclo
-                                  }
-                                </p>
-
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {formatarData(
-                                    pet.plano
-                                      .dataInicio
-                                  )}{" "}
-                                  até{" "}
-                                  {formatarData(
-                                    pet.plano
-                                      .dataFim
-                                  )}
-                                </p>
-                              </div>
-
-                              <div className="rounded-xl bg-white p-4">
-                                <p className="text-xs text-slate-400">
-                                  Banhos
-                                </p>
-
-                                <p className="mt-1 font-bold text-slate-900">
-                                  {
-                                    pet.plano
-                                      .banhosConcluidos
-                                  }{" "}
-                                  /{" "}
-                                  {
-                                    pet.plano
-                                      .totalBanhos
-                                  }
-                                </p>
-
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {
-                                    pet.plano
-                                      .banhosRestantes
-                                  }{" "}
-                                  restante(s)
-                                </p>
-                              </div>
-
-                              <div className="rounded-xl bg-white p-4">
-                                <p className="text-xs text-slate-400">
-                                  Pagamento
-                                </p>
-
-                                <p
-                                  className={`mt-1 font-bold ${
-                                    pet.plano
-                                      .pagamento ===
-                                    "Pago"
-                                      ? "text-emerald-600"
-                                      : "text-red-600"
-                                  }`}
-                                >
-                                  {pet.plano
-                                    .pagamento ===
-                                  "Pago"
-                                    ? "🟢 PAGO"
-                                    : "🔴 NÃO PAGO"}
-                                </p>
-
-                                {pet.plano
-                                  .formaPagamento && (
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {
-                                      pet.plano
-                                        .formaPagamento
-                                    }
-                                  </p>
                                 )}
                               </div>
                             </div>
+                          )}
 
-                             <div className="mt-4 rounded-xl bg-white p-4 text-sm text-slate-600">
-                               Pagamentos são registrados somente na página <strong>Pagamentos</strong>.
-                             </div>
+                          {/* ADICIONAIS */}
+                          {pet.servicos.adicionais.length >
+                            0 && (
+                            <div className="mt-5">
+                              <p className="text-sm font-bold text-gray-700">
+                                ➕ Adicionais
+                              </p>
 
-                            {pet.plano
-                              .renovacaoDisponivel &&
-                              pet.servicos
-                                .frequencia !==
-                                "Avulso" && (
-                              <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 md:flex-row md:items-center md:justify-between">
-                                <div>
-                                  <p className="text-sm font-bold text-emerald-800">
-                                    Este ciclo está pronto para renovação.
-                                  </p>
-
-                                  <p className="mt-1 text-xs text-emerald-700">
-                                    O próximo ciclo será criado separado deste.
-                                  </p>
-                                </div>
-
-                                <button
-                                  onClick={() =>
-                                    abrirRenovacao(
-                                      clienteSelecionado,
-                                      pet
-                                    )
-                                  }
-                                  className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700"
-                                >
-                                  Renovar
-                                </button>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {pet.servicos.adicionais.map(
+                                  (adicional) => (
+                                    <span
+                                      key={adicional}
+                                      className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600"
+                                    >
+                                      {adicional}
+                                    </span>
+                                  )
+                                )}
                               </div>
-                            )}
-                          </>
-                        ) : (
-                          <div className="mt-5 rounded-xl bg-white p-4">
-                            <p className="text-sm font-semibold text-slate-700">
-                              Nenhum ciclo encontrado
-                              para este pet.
+                            </div>
+                          )}
+
+                          {/* PROGRAMAÇÃO */}
+                          <div className="mt-5 rounded-2xl bg-gray-50 p-4">
+                            <p className="text-sm font-bold text-gray-700">
+                              🔄 Programação
+                            </p>
+
+                            <p className="mt-2 text-sm text-gray-600">
+                              {pet.servicos.frequencia ===
+                                "Avulso" &&
+                                "Agendamento único."}
+
+                              {pet.servicos.frequencia ===
+                                "Quinzenal" &&
+                                "Banho a cada 14 dias durante 12 meses."}
+
+                              {pet.servicos.frequencia ===
+                                "Mensal" &&
+                                "Banho mensal durante 12 meses."}
                             </p>
                           </div>
-                        )}
-                      </div>
 
-                      <div className="mt-5 grid gap-3 md:grid-cols-3">
-                        <div className="rounded-xl bg-slate-50 p-4">
-                          <p className="text-xs text-slate-400">
-                            Sexo
-                          </p>
+                          {/* OBSERVAÇÕES */}
+                          {pet.observacoes && (
+                            <div className="mt-5 rounded-2xl border border-gray-100 bg-white p-4">
+                              <p className="text-sm font-bold text-gray-700">
+                                Observações
+                              </p>
 
-                          <p className="mt-1 text-sm font-semibold text-slate-800">
-                            {pet.sexo ||
-                              "-"}
-                          </p>
+                              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-600">
+                                {pet.observacoes}
+                              </p>
+                            </div>
+                          )}
                         </div>
-
-                        <div className="rounded-xl bg-slate-50 p-4">
-                          <p className="text-xs text-slate-400">
-                            Nascimento
-                          </p>
-
-                          <p className="mt-1 text-sm font-semibold text-slate-800">
-                            {pet.dataNascimento
-                              ? formatarData(
-                                  pet.dataNascimento
-                                )
-                              : "-"}
-                          </p>
-                        </div>
-
-                        <div className="rounded-xl bg-slate-50 p-4">
-                          <p className="text-xs text-slate-400">
-                            Primeiro banho
-                          </p>
-
-                          <p className="mt-1 text-sm font-semibold text-slate-800">
-                            {pet.servicos
-                              .dataInicio
-                              ? formatarData(
-                                  pet.servicos
-                                    .dataInicio
-                                )
-                              : "-"}
-                          </p>
-                        </div>
-                      </div>
-
-                      {pet.servicos
-                        .tosas.length >
-                        0 && (
-                        <div className="mt-4">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Tosas
-                          </p>
-
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {pet.servicos.tosas.map(
-                              (item) => (
-                                <span
-                                  key={
-                                    item
-                                  }
-                                  className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                                >
-                                  {
-                                    item
-                                  }
-                                </span>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {pet.servicos
-                        .adicionais
-                        .length >
-                        0 && (
-                        <div className="mt-4">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Adicionais
-                          </p>
-
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {pet.servicos.adicionais.map(
-                              (item) => (
-                                <span
-                                  key={
-                                    item
-                                  }
-                                  className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
-                                >
-                                  {
-                                    item
-                                  }
-                                </span>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {pet.observacoes && (
-                        <div className="mt-4 rounded-xl bg-amber-50 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                            Observações
-                          </p>
-
-                          <p className="mt-1 text-sm text-amber-900">
-                            {
-                              pet.observacoes
-                            }
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )
+                      )
+                    )}
+                  </div>
                 )}
-              </div>
-            </div>
+              </section>
 
-            <div className="flex flex-wrap justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
-              <button
-                onClick={() => alert("O cadastro deve ser preservado. Para retirar um pet, use o botão Retirar pet da agenda.")}
-                disabled={
-                  excluindo
-                }
-                className="rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
-              >
-                {excluindo
-                  ? "Excluindo..."
-                  : "Cadastro preservado"}
-              </button>
-
-              <div className="flex gap-2">
+              {/* AÇÕES */}
+              <div className="mt-8 flex flex-col gap-3 border-t border-gray-100 pt-6 sm:flex-row sm:justify-end">
                 <button
-                  onClick={() => {
-                    const cliente =
-                      clienteSelecionado;
-
-                    setClienteSelecionado(
-                      null
-                    );
-
-                    abrirEdicao(
-                      cliente
-                    );
-                  }}
-                  className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+                  type="button"
+                  onClick={() =>
+                    abrirEdicao(clienteSelecionado)
+                  }
+                  disabled={excluindo}
+                  className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
                 >
-                  Editar cadastro
+                  ✏️ Editar cadastro
                 </button>
 
                 <button
+                  type="button"
                   onClick={() =>
-                    setClienteSelecionado(
-                      null
+                    excluirCliente(
+                      clienteSelecionado
                     )
                   }
-                  className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  disabled={excluindo}
+                  className="rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {excluindo
+                    ? "Excluindo..."
+                    : "🗑️ Excluir cadastro"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setClienteSelecionado(null)
+                  }
+                  disabled={excluindo}
+                  className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Fechar
                 </button>
@@ -4052,186 +2729,6 @@ export default function ClientesPetsPage() {
           </div>
         </div>
       )}
-
-      {/* ========================================================= */}
-      {/* MODAL RENOVAÇÃO                                            */}
-      {/* ========================================================= */}
-
-      {modalPlanoPet && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-6 py-5">
-              <p className="text-sm font-semibold text-emerald-600">
-                AGROMINAS
-              </p>
-
-              <h2 className="mt-1 text-xl font-bold text-slate-900">
-                Renovar plano
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                O novo ciclo será criado separadamente do ciclo anterior.
-              </p>
-            </div>
-
-            <div className="space-y-5 p-6">
-              <div>
-                <label className="text-sm font-semibold text-slate-700">
-                  Plano
-                </label>
-
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {(["Avulso", "Quinzenal", "Mensal"] as Frequencia[]).map(
-                    (
-                      frequencia: Frequencia
-                    ) => (
-                      <button
-                        key={
-                          frequencia
-                        }
-                        type="button"
-                        onClick={() =>
-                          setFrequenciaRenovacao(
-                            frequencia
-                          )
-                        }
-                        className={`rounded-xl border p-3 text-sm font-bold ${
-                          frequenciaRenovacao ===
-                          frequencia
-                            ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                            : "border-slate-200 text-slate-600"
-                        }`}
-                      >
-                        {
-                          frequencia
-                        }
-
-                        <span className="mt-1 block text-[10px] font-normal">
-                          {quantidadeBanhosPorCiclo(
-                            frequencia
-                          )}{" "}
-                          banho(s)
-                        </span>
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">
-                    Primeiro banho
-                  </label>
-
-                  <input
-                    type="date"
-                    value={
-                      dataInicioRenovacao
-                    }
-                    onChange={(e) =>
-                      setDataInicioRenovacao(
-                        e.target
-                          .value
-                      )
-                    }
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">
-                    Turno
-                  </label>
-
-                  <select
-                    value={
-                      turnoRenovacao
-                    }
-                    onChange={(e) =>
-                      setTurnoRenovacao(
-                        e.target
-                          .value as Turno
-                      )
-                    }
-                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500"
-                  >
-                    <option value="Manhã">
-                      Manhã — 08:00
-                    </option>
-
-                    <option value="Tarde">
-                      Tarde — 13:30
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold text-slate-700">
-                  Valor do ciclo
-                </label>
-
-                <input
-                  value={
-                    valorRenovacao
-                  }
-                  onChange={(e) =>
-                    setValorRenovacao(
-                      e.target
-                        .value
-                    )
-                  }
-                  placeholder="Ex.: 160,00"
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                <p className="text-sm font-bold text-emerald-800">
-                  Este ciclo terá{" "}
-                  {quantidadeBanhosPorCiclo(
-                    frequenciaRenovacao
-                  )}{" "}
-                  banho(s).
-                </p>
-
-                <p className="mt-1 text-xs text-emerald-700">
-                  O novo ciclo começa pendente. Registre o pagamento na página Pagamentos. Os ciclos anteriores permanecem inalterados.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
-              <button
-                onClick={
-                  fecharRenovacao
-                }
-                disabled={
-                  !!renovandoPetId
-                }
-                className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-
-              <button
-                onClick={
-                  renovarPlano
-                }
-                disabled={
-                  !!renovandoPetId
-                }
-                className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
-              >
-                {renovandoPetId
-                  ? "Renovando..."
-                  : "Criar novo ciclo"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </main>
   );
 }
