@@ -16,8 +16,6 @@ type ServicosPet = {
   dataInicio: string;
   turno: Turno;
   valorTotal: string;
-  pagamentoPlano: PagamentoPlano;
-  formaPagamentoPlano: string;
 };
 
 type PlanoResumo = {
@@ -97,13 +95,6 @@ const opcoesAdicionais = [
   "Hidratação",
 ];
 
-const formasPagamento = [
-  "Pix",
-  "Dinheiro",
-  "Cartão de débito",
-  "Cartão de crédito",
-];
-
 const racas = [
   "Akita",
   "American Bully",
@@ -171,8 +162,6 @@ function criarPet(id: string): Pet {
       dataInicio: "",
       turno: "Manhã",
       valorTotal: "",
-      pagamentoPlano: "Pendente",
-      formaPagamentoPlano: "",
     },
     plano: null,
   };
@@ -219,8 +208,6 @@ function converterPetDoBanco(pet: any): Pet {
         pet?.valor_total !== undefined
           ? String(pet.valor_total)
           : "",
-      pagamentoPlano: "Pendente",
-      formaPagamentoPlano: "",
     },
     plano: null,
   };
@@ -680,28 +667,11 @@ export default function ClientesPetsPage() {
   ] = useState("");
 
   const [
-    pagamentoRenovacao,
-    setPagamentoRenovacao,
-  ] = useState<PagamentoPlano>(
-    "Pendente"
-  );
-
-  const [
-    formaPagamentoRenovacao,
-    setFormaPagamentoRenovacao,
-  ] = useState("");
-
-  const [
     renovandoPetId,
     setRenovandoPetId,
   ] = useState<string | null>(null);
 
-  const [
-    pagandoPetId,
-    setPagandoPetId,
-  ] = useState<string | null>(null);
-
-  /*
+ /*
    * ============================================================
    * CARREGAR CLIENTES
    * ============================================================
@@ -853,17 +823,6 @@ export default function ClientesPetsPage() {
                   return {
                     ...pet,
                     plano,
-                    servicos: {
-                      ...pet.servicos,
-                      pagamentoPlano:
-                        plano?.pagamento ||
-                        pet.servicos
-                          .pagamentoPlano,
-                      formaPagamentoPlano:
-                        plano?.formaPagamento ||
-                        pet.servicos
-                          .formaPagamentoPlano,
-                    },
                   };
                 });
 
@@ -1006,19 +965,6 @@ export default function ClientesPetsPage() {
         ? cliente.pets.map(
             (pet) => ({
               ...pet,
-              servicos: {
-                ...pet.servicos,
-                pagamentoPlano:
-                  pet.plano
-                    ?.pagamento ||
-                  pet.servicos
-                    .pagamentoPlano,
-                formaPagamentoPlano:
-                  pet.plano
-                    ?.formaPagamento ||
-                  pet.servicos
-                    .formaPagamentoPlano,
-              },
             })
           )
         : [
@@ -1206,9 +1152,7 @@ export default function ClientesPetsPage() {
     petId: string,
     pet: Pet,
     ciclo = 1,
-    dataInicioForcada?: string,
-    pagamentoForcado?: PagamentoPlano,
-    formaPagamentoForcada?: string
+    dataInicioForcada?: string
   ) {
     const dataInicio =
       dataInicioForcada ||
@@ -1237,15 +1181,6 @@ export default function ClientesPetsPage() {
       valorNumerico(
         pet.servicos.valorTotal
       );
-
-    const pagamento =
-      pagamentoForcado ||
-      pet.servicos.pagamentoPlano;
-
-    const formaPagamento =
-      formaPagamentoForcada ||
-      pet.servicos
-        .formaPagamentoPlano;
 
     const agendamentos =
       Array.from(
@@ -1290,16 +1225,8 @@ export default function ClientesPetsPage() {
 
           ciclo,
 
-          pagamento_status:
-            pagamento === "Pago"
-              ? "Pago"
-              : "Pendente",
-
-          forma_pagamento_plano:
-            pagamento === "Pago"
-              ? formaPagamento ||
-                null
-              : null,
+          pagamento_status: "Pendente",
+          forma_pagamento_plano: null,
         })
       );
 
@@ -1560,21 +1487,7 @@ export default function ClientesPetsPage() {
           .valorTotal
       ) {
         alert(
-          `Informe o valor do plano/banho do pet ${pet.nome}.`
-        );
-
-        return;
-      }
-
-      if (
-        pet.servicos
-          .pagamentoPlano ===
-          "Pago" &&
-        !pet.servicos
-          .formaPagamentoPlano
-      ) {
-        alert(
-          `Informe a forma de pagamento do pet ${pet.nome}.`
+          `Informe o valor do serviço/plano do pet ${pet.nome}.`
         );
 
         return;
@@ -1584,6 +1497,24 @@ export default function ClientesPetsPage() {
     setSalvando(true);
 
     try {
+      // Confere no banco antes de criar OU alterar, incluindo CPFs antigos formatados.
+      const cpfInformado = cpf.replace(/\D/g, "");
+      const { data: cpfsExistentes, error: erroCpf } = await supabase
+        .from("clientes")
+        .select("id,nome,cpf");
+
+      if (erroCpf) throw erroCpf;
+
+      const duplicado = (cpfsExistentes || []).find((registro) =>
+        String(registro.cpf || "").replace(/\D/g, "") === cpfInformado &&
+        String(registro.id) !== String(clienteEditandoId || "")
+      );
+
+      if (duplicado) {
+        alert(`Este CPF já está cadastrado para ${duplicado.nome || "outro cliente"}.\nProcure o cadastro existente e utilize a opção Editar.`);
+        return;
+      }
+
       if (modoEdicao) {
         await atualizarClienteExistente();
 
@@ -1754,7 +1685,7 @@ export default function ClientesPetsPage() {
           /*
            * PRIMEIRO CICLO:
            *
-           * Avulso = 1 banho
+           * Avulso = 1 atendimento
            * Quinzenal = 2 banhos
            * Mensal = 4 banhos
            */
@@ -1969,13 +1900,6 @@ export default function ClientesPetsPage() {
         .valorTotal
     );
 
-    setPagamentoRenovacao(
-      "Pendente"
-    );
-
-    setFormaPagamentoRenovacao(
-      ""
-    );
   }
 
   function fecharRenovacao() {
@@ -2012,7 +1936,7 @@ export default function ClientesPetsPage() {
 
     if (!dataInicioRenovacao) {
       alert(
-        "Informe a data do primeiro banho do novo ciclo."
+        "Informe a data do primeiro atendimento do novo ciclo."
       );
 
       return;
@@ -2021,18 +1945,6 @@ export default function ClientesPetsPage() {
     if (!valorRenovacao) {
       alert(
         "Informe o valor do novo ciclo."
-      );
-
-      return;
-    }
-
-    if (
-      pagamentoRenovacao ===
-        "Pago" &&
-      !formaPagamentoRenovacao
-    ) {
-      alert(
-        "Informe a forma de pagamento."
       );
 
       return;
@@ -2103,11 +2015,6 @@ export default function ClientesPetsPage() {
           valorTotal:
             valorRenovacao,
 
-          pagamentoPlano:
-            pagamentoRenovacao,
-
-          formaPagamentoPlano:
-            formaPagamentoRenovacao,
         },
       };
 
@@ -2118,9 +2025,7 @@ export default function ClientesPetsPage() {
         pet.id,
         novaPet,
         novoCiclo,
-        dataInicioRenovacao,
-        pagamentoRenovacao,
-        formaPagamentoRenovacao
+        dataInicioRenovacao
       );
 
       /*
@@ -2182,95 +2087,6 @@ export default function ClientesPetsPage() {
       );
     } finally {
       setRenovandoPetId(
-        null
-      );
-    }
-  }
-
-  async function alterarPagamentoCiclo(
-    cliente: Cliente,
-    pet: Pet,
-    pagamento: PagamentoPlano,
-    formaPagamento: string
-  ) {
-    if (!pet.plano) {
-      alert(
-        "Este pet ainda não possui um ciclo registrado."
-      );
-
-      return;
-    }
-
-    if (
-      pagamento === "Pago" &&
-      !formaPagamento
-    ) {
-      alert(
-        "Selecione a forma de pagamento."
-      );
-
-      return;
-    }
-
-    setPagandoPetId(
-      pet.id
-    );
-
-    try {
-      const dados =
-        pagamento === "Pago"
-          ? {
-              pagamento_status:
-                "Pago",
-
-              forma_pagamento_plano:
-                formaPagamento,
-            }
-          : {
-              pagamento_status:
-                "Pendente",
-
-              forma_pagamento_plano:
-                null,
-            };
-
-      const {
-        error,
-      } = await supabase
-        .from(
-          "agendamentos"
-        )
-        .update(dados)
-        .eq(
-          "pet_id",
-          pet.id
-        )
-        .eq(
-          "ciclo",
-          pet.plano.ciclo
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      await recarregarESelecionarCliente(
-        cliente.id
-      );
-    } catch (error: any) {
-      console.error(
-        "ERRO AO ALTERAR PAGAMENTO:",
-        error
-      );
-
-      alert(
-        `Não foi possível atualizar o pagamento: ${
-          error?.message ||
-          "erro desconhecido"
-        }`
-      );
-    } finally {
-      setPagandoPetId(
         null
       );
     }
@@ -2601,21 +2417,7 @@ export default function ClientesPetsPage() {
                                     </p>
                                   </div>
 
-                                  <span
-                                    className={`rounded-full px-3 py-1 text-xs font-bold ${
-                                      pet.plano
-                                        .pagamento ===
-                                      "Pago"
-                                        ? "bg-emerald-100 text-emerald-700"
-                                        : "bg-red-100 text-red-700"
-                                    }`}
-                                  >
-                                    {pet.plano
-                                      .pagamento ===
-                                    "Pago"
-                                      ? "🟢 Plano pago"
-                                      : "🔴 Plano pendente"}
-                                  </span>
+
                                 </div>
                               )}
                             </div>
@@ -3374,99 +3176,6 @@ export default function ClientesPetsPage() {
                           </div>
                         </div>
 
-                        {!modoEdicao && (
-                          <div className="mt-5 rounded-xl bg-white p-4">
-                            <p className="text-sm font-bold text-slate-800">
-                              Pagamento do primeiro ciclo
-                            </p>
-
-                            <div className="mt-3 grid gap-3 md:grid-cols-2">
-                              <select
-                                value={
-                                  pet
-                                    .servicos
-                                    .pagamentoPlano
-                                }
-                                onChange={(
-                                  e
-                                ) =>
-                                  atualizarServico(
-                                    pet.id,
-                                    "pagamentoPlano",
-                                    e
-                                      .target
-                                      .value
-                                  )
-                                }
-                                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500"
-                              >
-                                <option value="Pendente">
-                                  🔴 Pendente
-                                </option>
-
-                                <option value="Pago">
-                                  🟢 Pago
-                                </option>
-                              </select>
-
-                              <select
-                                value={
-                                  pet
-                                    .servicos
-                                    .formaPagamentoPlano
-                                }
-                                disabled={
-                                  pet
-                                    .servicos
-                                    .pagamentoPlano !==
-                                  "Pago"
-                                }
-                                onChange={(
-                                  e
-                                ) =>
-                                  atualizarServico(
-                                    pet.id,
-                                    "formaPagamentoPlano",
-                                    e
-                                      .target
-                                      .value
-                                  )
-                                }
-                                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none disabled:bg-slate-100"
-                              >
-                                <option value="">
-                                  Forma de pagamento
-                                </option>
-
-                                {formasPagamento.map(
-                                  (
-                                    forma
-                                  ) => (
-                                    <option
-                                      key={
-                                        forma
-                                      }
-                                      value={
-                                        forma
-                                      }
-                                    >
-                                      {
-                                        forma
-                                      }
-                                    </option>
-                                  )
-                                )}
-                              </select>
-                            </div>
-
-                            <p className="mt-3 text-xs text-slate-500">
-                              O pagamento é aplicado
-                              somente aos banhos deste
-                              ciclo.
-                            </p>
-                          </div>
-                        )}
-
                         {modoEdicao && (
                           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
                             <strong>
@@ -3674,7 +3383,7 @@ export default function ClientesPetsPage() {
                         </span>
                       </div>
 
-                      <div className="mt-5 grid gap-3 md:grid-cols-4">
+                      <div className="mt-5 grid gap-3 md:grid-cols-3">
                         <div className="rounded-xl bg-slate-50 p-3">
                           <p className="text-xs text-slate-400">
                             Serviço
@@ -3767,7 +3476,7 @@ export default function ClientesPetsPage() {
 
                         {pet.plano ? (
                           <>
-                            <div className="mt-5 grid gap-3 md:grid-cols-4">
+                            <div className="mt-5 grid gap-3 md:grid-cols-3">
                               <div className="rounded-xl bg-white p-4">
                                 <p className="text-xs text-slate-400">
                                   Plano atual
@@ -3840,175 +3549,7 @@ export default function ClientesPetsPage() {
                                 </p>
                               </div>
 
-                              <div className="rounded-xl bg-white p-4">
-                                <p className="text-xs text-slate-400">
-                                  Pagamento
-                                </p>
 
-                                <p
-                                  className={`mt-1 font-bold ${
-                                    pet.plano
-                                      .pagamento ===
-                                    "Pago"
-                                      ? "text-emerald-600"
-                                      : "text-red-600"
-                                  }`}
-                                >
-                                  {pet.plano
-                                    .pagamento ===
-                                  "Pago"
-                                    ? "🟢 PAGO"
-                                    : "🔴 NÃO PAGO"}
-                                </p>
-
-                                {pet.plano
-                                  .formaPagamento && (
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {
-                                      pet.plano
-                                        .formaPagamento
-                                    }
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="mt-4 rounded-xl bg-white p-4">
-                              <div className="flex flex-col gap-3">
-                                <div>
-                                  <p className="text-sm font-bold text-slate-800">
-                                    Pagamento do ciclo{" "}
-                                    {
-                                      pet.plano
-                                        .ciclo
-                                    }
-                                  </p>
-
-                                  <p className="text-xs text-slate-500">
-                                    O pagamento altera
-                                    somente os banhos
-                                    deste ciclo.
-                                  </p>
-                                </div>
-
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                  <select
-                                    value={
-                                      pet.plano
-                                        .pagamento
-                                    }
-                                    disabled={
-                                      pagandoPetId ===
-                                      pet.id
-                                    }
-                                    onChange={(
-                                      e
-                                    ) => {
-                                      const novoStatus =
-                                        e
-                                          .target
-                                          .value as PagamentoPlano;
-
-                                      if (
-                                        novoStatus ===
-                                        "Pago"
-                                      ) {
-                                        if (
-                                          !pet.plano
-                                            ?.formaPagamento
-                                        ) {
-                                          alert(
-                                            "Primeiro selecione a forma de pagamento."
-                                          );
-
-                                          return;
-                                        }
-
-                                        alterarPagamentoCiclo(
-                                          clienteSelecionado,
-                                          pet,
-                                          "Pago",
-                                          pet.plano
-                                            .formaPagamento
-                                        );
-                                      } else {
-                                        alterarPagamentoCiclo(
-                                          clienteSelecionado,
-                                          pet,
-                                          "Pendente",
-                                          ""
-                                        );
-                                      }
-                                    }}
-                                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold"
-                                  >
-                                    <option value="Pendente">
-                                      🔴 Pendente
-                                    </option>
-
-                                    <option value="Pago">
-                                      🟢 Pago
-                                    </option>
-                                  </select>
-
-                                  <select
-                                    value={
-                                      pet.plano
-                                        .formaPagamento ||
-                                      ""
-                                    }
-                                    disabled={
-                                      pagandoPetId ===
-                                      pet.id
-                                    }
-                                    onChange={(
-                                      e
-                                    ) => {
-                                      const forma =
-                                        e
-                                          .target
-                                          .value;
-
-                                      if (
-                                        !forma
-                                      ) {
-                                        return;
-                                      }
-
-                                      alterarPagamentoCiclo(
-                                        clienteSelecionado,
-                                        pet,
-                                        "Pago",
-                                        forma
-                                      );
-                                    }}
-                                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold disabled:bg-slate-100"
-                                  >
-                                    <option value="">
-                                      Selecione a forma de pagamento
-                                    </option>
-
-                                    {formasPagamento.map(
-                                      (
-                                        forma
-                                      ) => (
-                                        <option
-                                          key={
-                                            forma
-                                          }
-                                          value={
-                                            forma
-                                          }
-                                        >
-                                          {
-                                            forma
-                                          }
-                                        </option>
-                                      )
-                                    )}
-                                  </select>
-                                </div>
-                              </div>
                             </div>
 
                             {pet.plano
@@ -4290,7 +3831,7 @@ export default function ClientesPetsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-sm font-semibold text-slate-700">
-                    Primeiro banho
+                    Primeiro atendimento
                   </label>
 
                   <input
@@ -4356,75 +3897,6 @@ export default function ClientesPetsPage() {
                 />
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm font-bold text-slate-800">
-                  Pagamento do novo ciclo
-                </p>
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <select
-                    value={
-                      pagamentoRenovacao
-                    }
-                    onChange={(e) =>
-                      setPagamentoRenovacao(
-                        e.target
-                          .value as PagamentoPlano
-                      )
-                    }
-                    className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm"
-                  >
-                    <option value="Pendente">
-                      🔴 Pendente
-                    </option>
-
-                    <option value="Pago">
-                      🟢 Pago
-                    </option>
-                  </select>
-
-                  <select
-                    value={
-                      formaPagamentoRenovacao
-                    }
-                    disabled={
-                      pagamentoRenovacao !==
-                      "Pago"
-                    }
-                    onChange={(e) =>
-                      setFormaPagamentoRenovacao(
-                        e.target
-                          .value
-                      )
-                    }
-                    className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm disabled:bg-slate-100"
-                  >
-                    <option value="">
-                      Forma de pagamento
-                    </option>
-
-                    {formasPagamento.map(
-                      (
-                        forma
-                      ) => (
-                        <option
-                          key={
-                            forma
-                          }
-                          value={
-                            forma
-                          }
-                        >
-                          {
-                            forma
-                          }
-                        </option>
-                      )
-                    )}
-                  </select>
-                </div>
-              </div>
-
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                 <p className="text-sm font-bold text-emerald-800">
                   Este ciclo terá{" "}
@@ -4435,9 +3907,7 @@ export default function ClientesPetsPage() {
                 </p>
 
                 <p className="mt-1 text-xs text-emerald-700">
-                  Se o ciclo for pago, somente estes
-                  banhos ficarão como PAGO. Os ciclos
-                  anteriores permanecem inalterados.
+                  O pagamento do novo ciclo deve ser registrado na página Pagamentos. Os ciclos anteriores permanecem inalterados.
                 </p>
               </div>
             </div>
