@@ -67,10 +67,29 @@ type AgendamentoBanco = {
   forma_pagamento_plano: string | null;
 };
 
+// Padroniza nomes antigos sem modificar registros históricos no banco.
+function padronizarServico(nome: string): string {
+  const original = String(nome || "").trim();
+  const chave = original.toLocaleLowerCase("pt-BR");
+  const nomes: Record<string, string> = {
+    "banho completo": "Banho",
+    "banho": "Banho",
+    "banho + tosa": "Banho com Tosa Completa",
+    "banho + tosa completa": "Banho com Tosa Completa",
+    "banho com tosa completa": "Banho com Tosa Completa",
+    "tosa higiênica": "Banho com Tosa Higiênica",
+    "banho + tosa higiênica": "Banho com Tosa Higiênica",
+    "banho com tosa higiênica": "Banho com Tosa Higiênica",
+    "tosa na máquina": "Tosa na Máquina",
+    "tosa na tesoura": "Tosa na Tesoura",
+  };
+  return nomes[chave] || original;
+}
+
 const opcoesBanhoTosa = [
   "Banho",
-  "Banho + Tosa Higiênica",
-  "Banho + Tosa Completa",
+  "Banho com Tosa Higiênica",
+  "Banho com Tosa Completa",
 ];
 
 const opcoesTosas = [
@@ -188,7 +207,7 @@ function converterPetDoBanco(pet: any): Pet {
         : "",
     observacoes: pet?.observacoes || "",
     servicos: {
-      banhoTosa: pet?.banho_tosa || "",
+      banhoTosa: padronizarServico(pet?.banho_tosa || ""),
       tosas: Array.isArray(pet?.tosas)
         ? pet.tosas
         : [],
