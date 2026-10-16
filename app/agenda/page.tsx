@@ -1051,8 +1051,9 @@ export default function AgendaPage() {
         (item) => item.id === servicoSelecionado
       );
 
-      const valor =
-        !ehAdmin && !agendamentoSelecionado
+      const valor = agendamentoSelecionado
+        ? agendamentoSelecionado.valor_total
+        : !ehAdmin
           ? (servico?.preco ?? null)
           : valorAgendamento.trim() === ""
             ? null
@@ -1063,20 +1064,23 @@ export default function AgendaPage() {
         return;
       }
 
-      const dadosBase = {
-        pet_id: petSelecionado,
-        servico_id: servicoSelecionado || null,
-        horario: formatarHorario(horarioAgendamento),
-        status: agendamentoSelecionado
-          ? agendamentoSelecionado.status || "Agendado"
-          : "Agendado",
-        observacoes: observacoes || null,
-        ...(ehAdmin || !agendamentoSelecionado ? { valor_total: valor } : {}),
-        servico_nome:
-          agendamentoSelecionado && agendamentoSelecionado.servico_id === servicoSelecionado
-            ? agendamentoSelecionado.servico_nome || servico?.nome || null
-            : servico?.nome || agendamentoSelecionado?.servico_nome || null,
-      };
+      // Na edição/reagendamento, serviço, pet e valor são preservados exatamente
+      // como foram registrados. A agenda não deve recalcular preços do cadastro
+      // nem substituir o serviço específico do banho (ex.: 2º banho sem higiênica).
+      const dadosBase = agendamentoSelecionado
+        ? {
+            horario: formatarHorario(horarioAgendamento),
+            observacoes: observacoes || null,
+          }
+        : {
+            pet_id: petSelecionado,
+            servico_id: servicoSelecionado || null,
+            horario: formatarHorario(horarioAgendamento),
+            status: "Agendado",
+            observacoes: observacoes || null,
+            valor_total: valor,
+            servico_nome: servico?.nome || null,
+          };
 
       if (agendamentoSelecionado) {
         if (modoReagendamento === "ciclo" && cicloIdentificado) {
@@ -1874,7 +1878,9 @@ export default function AgendaPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  Preencha os dados do atendimento.
+                  {agendamentoSelecionado
+                    ? "Altere a data, o horário ou as observações. Serviço e valor são preenchidos automaticamente."
+                    : "Preencha os dados do atendimento."}
                 </p>
               </div>
 
@@ -1897,12 +1903,14 @@ export default function AgendaPage() {
                 <input
                   type="text"
                   value={buscaPet}
+                  readOnly={Boolean(agendamentoSelecionado)}
                   onChange={(e) => {
+                    if (agendamentoSelecionado) return;
                     setBuscaPet(e.target.value);
                     setPetSelecionado("");
                     setMostrarSugestoesPet(true);
                   }}
-                  onFocus={() => setMostrarSugestoesPet(true)}
+                  onFocus={() => { if (!agendamentoSelecionado) setMostrarSugestoesPet(true); }}
                   onBlur={() =>
                     setTimeout(
                       () => setMostrarSugestoesPet(false),
@@ -1911,10 +1919,10 @@ export default function AgendaPage() {
                   }
                   placeholder="Digite o nome do pet ou do tutor..."
                   autoComplete="off"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
+                  className={`w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500 ${agendamentoSelecionado ? "bg-slate-100 text-slate-600" : ""}`}
                 />
 
-                {mostrarSugestoesPet && petsFiltrados.length > 0 && (
+                {!agendamentoSelecionado && mostrarSugestoesPet && petsFiltrados.length > 0 && (
                   <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg">
                     {petsFiltrados.map((pet) => (
                       <button
@@ -1936,7 +1944,7 @@ export default function AgendaPage() {
                   </div>
                 )}
 
-                {mostrarSugestoesPet &&
+                {!agendamentoSelecionado && mostrarSugestoesPet &&
                   buscaPet.trim() &&
                   petsFiltrados.length === 0 && (
                     <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-500 shadow-lg">
@@ -2013,6 +2021,31 @@ export default function AgendaPage() {
                 </div>
               )}
 
+              {agendamentoSelecionado ? (
+                <>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-gray-700">Serviço do banho</label>
+                    <div className="min-h-12 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950">
+                      {obterNomeServico(agendamentoSelecionado)}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">Preenchido automaticamente pelo agendamento do pet.</p>
+                  </div>
+                  {ehAdmin && (
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        {ehPlano(agendamentoSelecionado) ? "Valor total do ciclo" : "Valor do atendimento"}
+                      </label>
+                      <div className="min-h-12 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950">
+                        {agendamentoSelecionado.valor_total === null
+                          ? "Valor não informado no agendamento"
+                          : formatarValor(agendamentoSelecionado.valor_total)}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">Valor preservado; pagamentos são tratados na página Pagamentos.</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Serviço
@@ -2066,6 +2099,9 @@ export default function AgendaPage() {
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 />
               </div>}
+
+                </>
+              )}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
