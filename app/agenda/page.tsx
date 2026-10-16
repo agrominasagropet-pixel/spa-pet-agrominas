@@ -1393,19 +1393,22 @@ export default function AgendaPage() {
     return (
       <div
         key={agendamento.id}
-        className={`rounded-2xl border-l-4 p-4 shadow-sm transition hover:shadow-md ${cancelado ? "border-rose-400 bg-rose-50/70 opacity-80" : concluido ? "border-emerald-500 bg-emerald-50/60" : "border-amber-400 bg-white"}`}
+        className={`rounded-2xl border border-l-4 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${cancelado ? "border-rose-200 border-l-rose-400 bg-rose-50/70 opacity-80" : concluido ? "border-emerald-200 border-l-emerald-500 bg-emerald-50/50" : "border-slate-200 border-l-amber-400 bg-white"}`}
       >
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-lg text-emerald-700">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-lg text-emerald-700 shadow-sm ring-1 ring-emerald-100">
               🐾
             </div>
 
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h4 className="font-semibold text-emerald-950">
+                <h4 className="text-base font-extrabold tracking-tight text-slate-900">
                   {agendamento.petNome || "Pet"}
                 </h4>
+                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-extrabold tracking-wide ${agendamento.plano === "Mensal" ? "border-violet-200 bg-violet-50 text-violet-700" : agendamento.plano === "Quinzenal" ? "border-sky-200 bg-sky-50 text-sky-700" : "border-slate-200 bg-slate-100 text-slate-700"}`}>
+                  {agendamento.plano === "Mensal" || agendamento.plano === "Quinzenal" ? agendamento.plano : "Avulso"}
+                </span>
 
                 <span
                   className={
@@ -1427,8 +1430,8 @@ export default function AgendaPage() {
               )}
 
               <p className="mt-1 text-sm text-gray-600">
-                {obterNomeServico(agendamento)} •{" "}
-                {formatarValor(agendamento.valor_total)}
+                {obterNomeServico(agendamento)}
+                {ehAdmin && <> • {formatarValor(agendamento.valor_total)}</>}
               </p>
 
             </div>
@@ -1530,16 +1533,16 @@ export default function AgendaPage() {
     return (
       <div
         key={grupo.chave}
-        className="rounded-3xl border border-emerald-100 bg-emerald-50/40 p-5 shadow-sm"
+        className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4 shadow-sm md:p-5"
       >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-xl shadow-sm">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-xl shadow-sm">
               👤
             </div>
 
             <div>
-              <h4 className="font-semibold text-emerald-950">
+              <h4 className="text-base font-extrabold text-slate-900">
                 {grupo.tutorNome}
               </h4>
 
@@ -1614,244 +1617,173 @@ export default function AgendaPage() {
     year: "numeric",
   });
 
+  const agendamentosAtivosDoDia = agendamentos.filter(
+    (item) => item.data === dataSelecionada && !estaCancelado(item)
+  );
+  const totalDia = agendamentosAtivosDoDia.length;
+  const concluidosDia = agendamentosAtivosDoDia.filter(estaConcluido).length;
+  const pendentesDia = totalDia - concluidosDia;
+  const planosDia = agendamentosAtivosDoDia.filter(
+    (item) => item.plano === "Mensal" || item.plano === "Quinzenal"
+  ).length;
+  const nomeDiaSelecionado = (() => {
+    const [ano, mes, dia] = dataSelecionada.split("-").map(Number);
+    return new Date(ano, mes - 1, dia).toLocaleDateString("pt-BR", {
+      weekday: "long", day: "numeric", month: "long", year: "numeric"
+    });
+  })();
+  const quantidadePorDia = new Map<string, number>();
+  agendamentos.forEach((item) => {
+    if (!estaCancelado(item)) quantidadePorDia.set(item.data, (quantidadePorDia.get(item.data) || 0) + 1);
+  });
+
   return (
-    <main className="min-h-screen bg-[#f3f8f5]">
+    <main className="min-h-screen bg-[#f5f7f8]">
       <div className="flex min-h-screen">
         <MenuLateral />
 
-        <section className="min-w-0 flex-1 p-4 md:p-8">
-          <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold tracking-wide text-emerald-800">🐾 SPA PET AGROMINAS</div>
-              <h2 className="text-3xl font-extrabold tracking-tight text-emerald-950">
-                Agenda
-              </h2>
-
-              <p className="mt-1 text-gray-500">
-                Banhos, planos, reagendamentos e atendimentos em um só lugar.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => abrirNovoAgendamento()}
-              className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-emerald-800"
-            >
-              + Novo agendamento
-            </button>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-[330px_minmax(0,1fr)]">
-            <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm md:p-6">
-              <div className="mb-5 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => mudarMes(-1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-gray-100"
-                  aria-label="Mês anterior"
-                >
-                  ←
-                </button>
-
-                <h3 className="font-bold capitalize text-emerald-950">
-                  {nomeMes}
-                </h3>
-
-                <button
-                  type="button"
-                  onClick={() => mudarMes(1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-gray-100"
-                  aria-label="Próximo mês"
-                >
-                  →
+        <section className="min-w-0 flex-1 px-4 py-6 md:px-7 md:py-8 xl:px-10">
+          <div className="mx-auto max-w-[1560px]">
+            <header className="relative mb-6 overflow-hidden rounded-[28px] bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-800 p-6 text-white shadow-lg shadow-emerald-950/10 md:p-8">
+              <div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full border-[45px] border-white/5" />
+              <div className="pointer-events-none absolute -bottom-24 right-40 h-52 w-52 rounded-full bg-emerald-400/10 blur-2xl" />
+              <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold tracking-[0.12em] text-emerald-50">
+                    🐾 SPA PET AGROMINAS <span className="text-emerald-300">/</span> BANHO E TOSA
+                  </p>
+                  <h1 className="text-3xl font-black tracking-tight md:text-4xl">Agenda de atendimentos</h1>
+                  <p className="mt-2 max-w-2xl text-sm text-emerald-100 md:text-base">Organize os pets, acompanhe os banhos e gerencie os planos em um só lugar.</p>
+                </div>
+                <button type="button" onClick={() => abrirNovoAgendamento()}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-extrabold text-emerald-900 shadow-md transition hover:-translate-y-0.5 hover:bg-emerald-50 hover:shadow-lg">
+                  <span className="text-xl leading-none">+</span> Novo agendamento
                 </button>
               </div>
+            </header>
 
-              <div className="mb-2 grid grid-cols-7 text-center text-xs font-medium text-gray-400">
-                {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map(
-                  (dia) => (
-                    <span key={dia}>{dia}</span>
-                  )
+            <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
+              {[
+                { titulo: "Pets do dia", valor: totalDia, detalhe: "agendamentos ativos", icone: "🐾", cor: "bg-emerald-50 text-emerald-800" },
+                { titulo: "Aguardando", valor: pendentesDia, detalhe: "a concluir", icone: "⏳", cor: "bg-amber-50 text-amber-800" },
+                { titulo: "Concluídos", valor: concluidosDia, detalhe: "atendimentos finalizados", icone: "✓", cor: "bg-teal-50 text-teal-800" },
+                { titulo: "Em planos", valor: planosDia, detalhe: "quinzenais e mensais", icone: "✦", cor: "bg-violet-50 text-violet-800" },
+              ].map((indicador) => (
+                <div key={indicador.titulo} className="rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm md:p-5">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-500 md:text-sm">{indicador.titulo}</span>
+                    <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-lg font-bold ${indicador.cor}`}>{indicador.icone}</span>
+                  </div>
+                  <div className="mt-2 text-3xl font-black tracking-tight text-slate-900">{carregando ? "—" : indicador.valor}</div>
+                  <p className="mt-1 text-xs text-slate-500">{indicador.detalhe}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid items-start gap-6 xl:grid-cols-[330px_minmax(0,1fr)]">
+              <aside className="space-y-4 xl:sticky xl:top-6">
+                <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-5 flex items-center justify-between gap-2">
+                    <button type="button" onClick={() => mudarMes(-1)} aria-label="Mês anterior"
+                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-lg text-slate-600 transition hover:bg-slate-50">‹</button>
+                    <h2 className="text-center text-base font-extrabold capitalize text-slate-900">{nomeMes}</h2>
+                    <button type="button" onClick={() => mudarMes(1)} aria-label="Próximo mês"
+                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-lg text-slate-600 transition hover:bg-slate-50">›</button>
+                  </div>
+                  <div className="mb-2 grid grid-cols-7 text-center text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                    {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((dia) => <span key={dia}>{dia}</span>)}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {diasDoMes.map((dia, index) => {
+                      if (dia === null) return <div key={`vazio-${index}`} className="h-11" />;
+                      const data = `${mesAtual.getFullYear()}-${String(mesAtual.getMonth() + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+                      const selecionado = data === dataSelecionada;
+                      const hoje = data === obterDataLocal();
+                      const quantidade = quantidadePorDia.get(data) || 0;
+                      return (
+                        <button key={data} type="button" onClick={() => selecionarDia(dia)}
+                          aria-label={`${formatarDataLocal(data)}${quantidade ? `, ${quantidade} pets agendados` : ""}`}
+                          aria-pressed={selecionado}
+                          className={`relative flex h-11 flex-col items-center justify-center rounded-xl text-sm transition ${selecionado ? "bg-emerald-700 font-extrabold text-white shadow-md shadow-emerald-700/20" : hoje ? "bg-emerald-50 font-extrabold text-emerald-800 ring-1 ring-emerald-200" : "font-medium text-slate-700 hover:bg-slate-100"}`}>
+                          {dia}
+                          {quantidade > 0 && <span className={`absolute bottom-1.5 h-1 w-1 rounded-full ${selecionado ? "bg-white" : "bg-emerald-500"}`} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+                    <span className="inline-flex items-center gap-2 text-xs font-medium text-slate-500"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Dias com agendamentos</span>
+                    <button type="button" onClick={irParaHoje} className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-extrabold text-emerald-800 transition hover:bg-emerald-100">Hoje</button>
+                  </div>
+                </div>
+                <div className="rounded-[22px] border border-emerald-100 bg-emerald-50 p-5">
+                  <p className="text-xs font-extrabold uppercase tracking-widest text-emerald-700">Horários de entrada</p>
+                  <div className="mt-4 flex items-center justify-between border-b border-emerald-200/70 pb-3"><span className="text-sm font-medium text-emerald-950">☀️ Manhã</span><strong className="text-emerald-950">08:00</strong></div>
+                  <div className="flex items-center justify-between pt-3"><span className="text-sm font-medium text-emerald-950">🌤️ Tarde</span><strong className="text-emerald-950">13:30</strong></div>
+                </div>
+              </aside>
+
+              <div className="min-w-0 overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-5 py-5 md:px-7 md:py-6">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-700">Agenda do dia</p>
+                      <h2 className="mt-1 text-xl font-black capitalize tracking-tight text-slate-900 md:text-2xl">{nomeDiaSelecionado}</h2>
+                      <p className="mt-1 text-sm text-slate-500">{totalDia} {totalDia === 1 ? "pet agendado" : "pets agendados"} neste dia</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button type="button" onClick={irParaDiaAnterior} aria-label="Dia anterior" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-xl text-slate-600 hover:bg-slate-50">‹</button>
+                      <button type="button" onClick={irParaHoje} className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 hover:bg-slate-50">Hoje</button>
+                      <button type="button" onClick={irParaProximoDia} aria-label="Próximo dia" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-xl text-slate-600 hover:bg-slate-50">›</button>
+                    </div>
+                  </div>
+                  <div className="relative mt-5">
+                    <label htmlFor="busca-agenda" className="sr-only">Buscar pet ou tutor neste dia</label>
+                    <span aria-hidden="true" className="pointer-events-none absolute left-4 top-3 text-lg text-slate-400">⌕</span>
+                    <input id="busca-agenda" type="search" value={buscaAgenda} onChange={(e) => setBuscaAgenda(e.target.value)}
+                      placeholder="Buscar pet ou tutor neste dia..." className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-100" />
+                  </div>
+                </div>
+                {carregando ? (
+                  <div className="p-12 text-center text-sm font-medium text-slate-500">Carregando agenda...</div>
+                ) : (
+                  <div className="space-y-8 px-4 py-6 md:px-7 md:py-7">
+                    {([
+                      { nome: "Manhã", horario: "08:00", icone: "☀️", lista: agendamentosManha, grupos: gruposManha },
+                      { nome: "Tarde", horario: "13:30", icone: "🌤️", lista: agendamentosTarde, grupos: gruposTarde },
+                    ] as const).map((turno) => (
+                      <section key={turno.nome}>
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-xl">{turno.icone}</span>
+                            <div><h3 className="text-lg font-black text-slate-900">{turno.nome}</h3><p className="text-xs font-semibold text-slate-500">Entrada às {turno.horario}</p></div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-extrabold text-slate-700">{turno.lista.length} {turno.lista.length === 1 ? "pet" : "pets"}</span>
+                            <button type="button" onClick={() => { abrirNovoAgendamento(dataSelecionada); setHorarioAgendamento(turno.horario); }}
+                              className="rounded-xl border border-emerald-200 px-3 py-2 text-xs font-extrabold text-emerald-800 transition hover:bg-emerald-50">+ Adicionar</button>
+                          </div>
+                        </div>
+                        {turno.grupos.length === 0 ? (
+                          <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-9 text-center">
+                            <div className="text-3xl">🐶</div>
+                            <p className="mt-2 text-sm font-bold text-slate-700">Nenhum pet agendado para este turno</p>
+                            <p className="mt-1 text-xs text-slate-500">Os novos agendamentos aparecerão aqui.</p>
+                          </div>
+                        ) : <div className="space-y-3">{turno.grupos.map(renderGrupoTutor)}</div>}
+                      </section>
+                    ))}
+                  </div>
                 )}
               </div>
-
-              <div className="grid grid-cols-7 gap-1">
-                {diasDoMes.map((dia, index) => {
-                  if (dia === null) {
-                    return (
-                      <div
-                        key={`vazio-${index}`}
-                        className="h-10"
-                      />
-                    );
-                  }
-
-                  const data = `${mesAtual.getFullYear()}-${String(
-                    mesAtual.getMonth() + 1
-                  ).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
-
-                  const selecionado = data === dataSelecionada;
-                  const hoje = data === obterDataLocal();
-                  const temAgendamento = existeAgendamentoNoDia(dia);
-
-                  return (
-                    <button
-                      key={data}
-                      type="button"
-                      onClick={() => selecionarDia(dia)}
-                      className={
-                        "relative flex h-10 items-center justify-center rounded-lg text-sm " +
-                        (selecionado
-                          ? "bg-emerald-700 font-semibold text-white shadow-sm"
-                          : hoje
-                            ? "bg-emerald-50 font-semibold text-emerald-800"
-                            : "text-gray-700 hover:bg-emerald-50")
-                      }
-                    >
-                      {dia}
-
-                      {temAgendamento && (
-                        <span
-                          className={
-                            "absolute bottom-1 h-1 w-1 rounded-full " +
-                            (selecionado ? "bg-white" : "bg-emerald-600")
-                          }
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <button
-                type="button"
-                onClick={irParaHoje}
-                className="mt-5 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Ir para hoje
-              </button>
-            </div>
-
-            <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm md:p-6">
-              <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">
-                    Dia selecionado
-                  </p>
-
-                  <h3 className="mt-1 text-2xl font-extrabold text-emerald-950">
-                    {formatarDataLocal(dataSelecionada)}
-                  </h3>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={irParaDiaAnterior}
-                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-                    aria-label="Dia anterior"
-                  >
-                    ←
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={irParaHoje}
-                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
-                  >
-                    Hoje
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={irParaProximoDia}
-                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-                    aria-label="Próximo dia"
-                  >
-                    →
-                  </button>
-                </div>
-              </div>
-
-              <label htmlFor="busca-agenda" className="mb-2 block text-sm font-medium text-gray-700">Buscar pet ou tutor neste dia</label>
-              <input id="busca-agenda" type="search" value={buscaAgenda} onChange={e => setBuscaAgenda(e.target.value)} placeholder="Nome do pet ou tutor..." className="mb-6 w-full rounded-xl border border-emerald-200 bg-emerald-50/30 px-4 py-3 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
-              {carregando ? (
-                <div className="rounded-xl bg-gray-50 p-10 text-center text-gray-500">
-                  Carregando agenda...
-                </div>
-              ) : (
-                <div className="space-y-8">
-                  <section>
-                    <div className="mb-4 flex items-center justify-between">
-                      <div>
-                        <h4 className="font-semibold text-emerald-950">
-                          ☀️ Manhã
-                        </h4>
-
-                        <p className="text-sm text-gray-500">
-                          08:00 às 12:00
-                        </p>
-                      </div>
-
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-                        {agendamentosManha.length}{" "}
-                        {agendamentosManha.length === 1 ? "pet" : "pets"}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3">
-                      {gruposManha.length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center">
-                          <p className="text-sm text-gray-500">
-                            Nenhum pet agendado pela manhã.
-                          </p>
-                        </div>
-                      ) : (
-                        gruposManha.map(renderGrupoTutor)
-                      )}
-                    </div>
-                  </section>
-
-                  <section>
-                    <div className="mb-4 flex items-center justify-between">
-                      <div>
-                        <h4 className="font-semibold text-emerald-950">
-                          🌤️ Tarde
-                        </h4>
-
-                        <p className="text-sm text-gray-500">
-                          13:30 às 17:30
-                        </p>
-                      </div>
-
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-                        {agendamentosTarde.length}{" "}
-                        {agendamentosTarde.length === 1 ? "pet" : "pets"}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3">
-                      {gruposTarde.length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center">
-                          <p className="text-sm text-gray-500">
-                            Nenhum pet agendado à tarde.
-                          </p>
-                        </div>
-                      ) : (
-                        gruposTarde.map(renderGrupoTutor)
-                      )}
-                    </div>
-                  </section>
-                </div>
-              )}
             </div>
           </div>
         </section>
       </div>
 
       {renovacao && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-[3px]">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl md:p-8">
             <h3 className="text-xl font-extrabold text-emerald-950">🔄 Gerar próximo ciclo</h3>
             <p className="mt-2 text-sm text-gray-600">
               Pet: <strong>{renovacao.petNome}</strong> • {renovacao.plano} • Novo ciclo {Number(renovacao.ciclo) + 1}
@@ -1904,8 +1836,8 @@ export default function AgendaPage() {
       )}
 
       {modalAgendamento && perfilUsuario && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-emerald-100 bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-[3px]">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl md:p-8">
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">
