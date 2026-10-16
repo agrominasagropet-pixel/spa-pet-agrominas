@@ -651,6 +651,56 @@ export default function ClientesPetsPage() {
   const [cpf, setCpf] =
     useState("");
 
+  const [verificacaoCpf, setVerificacaoCpf] = useState<{
+    cpf: string;
+    estado: "consultando" | "duplicado" | "disponivel" | "erro";
+    nome?: string;
+  } | null>(null);
+
+  const cpfNumeros = somenteDigitos(cpf);
+  const cpfDuplicadoLocal = cpfNumeros.length === 11 && cpfValido(cpfNumeros)
+    ? clientes.find((cliente) =>
+        somenteDigitos(cliente.cpf) === cpfNumeros &&
+        String(cliente.id) !== String(clienteEditandoId || "")
+      )
+    : undefined;
+  const cpfDuplicado = cpfDuplicadoLocal ||
+    (verificacaoCpf?.cpf === cpfNumeros && verificacaoCpf.estado === "duplicado"
+      ? { nome: verificacaoCpf.nome || "outro cliente" }
+      : undefined);
+
+  useEffect(() => {
+    if (!modalCadastro || cpfNumeros.length !== 11 || !cpfValido(cpfNumeros)) {
+      return;
+    }
+    if (cpfDuplicadoLocal) return;
+
+    let ativo = true;
+    const timer = setTimeout(async () => {
+      setVerificacaoCpf({ cpf: cpfNumeros, estado: "consultando" });
+      const { data, error } = await supabase
+        .from("clientes")
+        .select("id,nome,cpf")
+        .not("cpf", "is", null);
+      if (!ativo) return;
+      if (error) {
+        setVerificacaoCpf({ cpf: cpfNumeros, estado: "erro" });
+        return;
+      }
+      const existente = (data || []).find((item) =>
+        somenteDigitos(item.cpf || "") === cpfNumeros &&
+        String(item.id) !== String(clienteEditandoId || "")
+      );
+      setVerificacaoCpf({
+        cpf: cpfNumeros,
+        estado: existente ? "duplicado" : "disponivel",
+        nome: existente?.nome,
+      });
+    }, 300);
+    return () => { ativo = false; clearTimeout(timer); };
+  }, [cpfNumeros, modalCadastro, clienteEditandoId, cpfDuplicadoLocal?.id]);
+
+
   const [contato, setContato] =
     useState("");
 
@@ -1507,6 +1557,12 @@ export default function ClientesPetsPage() {
       alert("Informe um CPF válido. Confira os dígitos verificadores.");
       return;
     }
+
+    if (cpfDuplicado) {
+      alert(`Este CPF já está cadastrado para ${cpfDuplicado.nome}. Abra o cadastro existente.`);
+      return;
+    }
+
 
     if (
       contato.replace(
@@ -2710,8 +2766,23 @@ export default function ClientesPetsPage() {
                           )
                         }
                         placeholder="000.000.000-00"
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                        inputMode="numeric"
+                        maxLength={14}
+                        className={`mt-1 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 ${cpfDuplicado ? "border-red-400 bg-red-50 focus:ring-red-100" : "border-slate-300 focus:border-emerald-500 focus:ring-emerald-100"}`}
                       />
+                      {cpfNumeros.length === 11 && (
+                        <p className={`mt-2 text-sm font-semibold ${cpfDuplicado || !cpfValido(cpfNumeros) ? "text-red-600" : "text-emerald-700"}`} role="status">
+                          {!cpfValido(cpfNumeros)
+                            ? "CPF inválido. Confira os números."
+                            : cpfDuplicado
+                            ? `CPF já cadastrado para ${cpfDuplicado.nome}. Não é necessário preencher novamente.`
+                            : verificacaoCpf?.cpf !== cpfNumeros || verificacaoCpf.estado === "consultando"
+                            ? "Consultando CPF no cadastro..."
+                            : verificacaoCpf.estado === "erro"
+                            ? "Não foi possível consultar agora. A verificação será repetida ao salvar."
+                            : "CPF válido e disponível para cadastro."}
+                        </p>
+                      )}
                     </div>
 
                     <div>
