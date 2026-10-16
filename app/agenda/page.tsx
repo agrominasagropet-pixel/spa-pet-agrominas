@@ -521,6 +521,10 @@ export default function AgendaPage() {
   const [observacoes, setObservacoes] = useState("");
   const [valorAgendamento, setValorAgendamento] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [renovacao, setRenovacao] = useState<Agendamento | null>(null);
+  const [dataInicioRenovacao, setDataInicioRenovacao] = useState("");
+  const [horarioRenovacao, setHorarioRenovacao] = useState("08:00");
+  const [salvandoRenovacao, setSalvandoRenovacao] = useState(false);
   const registroAtendimentoEmAndamento = useRef(false);
   const [modoReagendamento, setModoReagendamento] = useState<"unico" | "ciclo">("unico");
   const [buscaAgenda, setBuscaAgenda] = useState("");
@@ -733,6 +737,129 @@ export default function AgendaPage() {
       forma: atendimento?.forma_pagamento || null,
       valor: atendimento?.valor ?? agendamento.valor_total,
     };
+  }
+
+  // Renovação manual: somente no último banho do ciclo mais recente.
+  // Não gera agenda anual nem modifica registros de ciclos anteriores.
+  function podeRenovarCiclo(ag: Agendamento) {
+    if (estaCancelado(ag) || !ehPlano(ag)) return false;
+    const total = ag.plano === "Quinzenal" ? 2 : ag.plano === "Mensal" ? 4 : 0;
+    if (!total || ag.numero_banho !== total || ag.ciclo === null) return false;
+    const ciclos = agendamentos.filter(a =>
+      a.pet_id === ag.pet_id && a.ciclo !== null && !estaCancelado(a)
+    );
+    const maiorCiclo = Math.max(0, ...ciclos.map(a => Number(a.ciclo) || 0));
+    if (Number(ag.ciclo) !== maiorCiclo) return false;
+    // Não permitir renovação enquanto houver banhos anteriores pendentes.
+    const doCiclo = ciclos.filter(a => a.ciclo === ag.ciclo);
+    if (doCiclo.length !== total ||
+        !Array.from({ length: total }, (_, i) => i + 1).every(n =>
+          doCiclo.some(a => a.numero_banho === n && estaConcluido(a))
+        )) return false;
+    return true;
+  }
+
+  function abrirRenovacao(ag: Agendamento) {
+    if (!podeRenovarCiclo(ag)) {
+      alert("Conclua os banhos do ciclo atual antes de renovar.");
+      return;
+    }
+    const intervalo = ag.plano === "Quinzenal" ? 14 : 7;
+    setDataInicioRenovacao(adicionarDias(ag.data, intervalo));
+    setHorarioRenovacao(formatarHorario(ag.horario));
+    setRenovacao(ag);
+  }
+
+  const quantidadeRenovacao = renovacao?.plano === "Quinzenal" ? 2 : 4;
+  const intervaloRenovacao = renovacao?.plano === "Quinzenal" ? 14 : 7;
+  const datasRenovacao = renovacao && dataValida(dataInicioRenovacao)
+    ? Array.from({ length: quantidadeRenovacao }, (_, i) =>
+        adicionarDias(dataInicioRenovacao, i * intervaloRenovacao))
+    : [];
+
+  async function confirmarRenovacao() {
+    if (!renovacao || salvandoRenovacao) return;
+    if (!perfilUsuario || !podeRenovarCiclo(renovacao)) {
+      alert("Não foi possível validar o ciclo. Atualize a agenda e tente novamente.");
+      return;
+    }
+    if (!dataValida(dataInicioRenovacao) || datasRenovacao.length !== quantidadeRenovacao) {
+      alert("Selecione uma data inicial válida.");
+      return;
+    }
+    if (dataInicioRenovacao <= renovacao.data) {
+      alert("O novo ciclo precisa começar depois do último banho do ciclo anterior.");
+      return;
+    }
+    if (!["08:00", "13:30"].includes(horarioRenovacao)) {
+      alert("Escolha um turno válido.");
+      return;
+    }
+    const numeroNovoCiclo = Number(renovacao.ciclo) + 1;
+    const mensagem = `Confirmar novo ciclo de ${renovacao.petNome || "Pet"}?\n\n` +
+      `Plano: ${renovacao.plano} • Ciclo ${numeroNovoCiclo}\n` +
+      datasRenovacao.map((data, i) => `${i + 1}º banho: ${formatarDataLocal(data)} às ${horarioRenovacao}`).join("\n") +
+      "\n\nO pagamento não será registrado nesta operação.";
+    if (!window.confirm(mensagem)) return;
+
+    setSalvandoRenovacao(true);
+    try {
+      // Consulta novamente o banco antes de gravar, não apenas a lista em memória.
+      const { data: existentes, error: erroConsulta } = await supabase
+        .from("agendamentos")
+        .select("id, ciclo, data, numero_banho, status")
+        .eq("pet_id", renovacao.pet_id);
+      if (erroConsulta) throw erroConsulta;
+      const ativos = (existentes || []).filter(a =>
+        !["cancelado", "cancelada"].includes(statusNormalizado(a.status))
+      );
+      if (ativos.some(a => Number(a.ciclo) >= numeroNovoCiclo && a.ciclo !== null)) {
+        throw new Error("Já existe um ciclo posterior para este pet. Nenhum novo banho foi criado.");
+      }
+      if (ativos.some(a => datasRenovacao.includes(a.data))) {
+        throw new Error("Já existe agendamento deste pet em uma das datas escolhidas. Ajuste a data inicial.");
+      }
+      // Verifica também se os banhos do ciclo de origem continuam concluídos.
+      const origem = ativos.filter(a => Number(a.ciclo) === Number(renovacao.ciclo));
+      if (origem.length !== quantidadeRenovacao ||
+          !Array.from({ length: quantidadeRenovacao }, (_, i) => i + 1).every(n =>
+            origem.some(a => a.numero_banho === n &&
+              (["concluido", "finalizado"].includes(statusNormalizado(a.status)) ||
+                atendimentos.some(at => at.agendamento_id === a.id)))
+          )) {
+        throw new Error("O ciclo anterior não está totalmente concluído. Atualize a agenda.");
+      }
+      const registros = datasRenovacao.map((data, i) => ({
+        pet_id: renovacao.pet_id,
+        servico_id: renovacao.servico_id,
+        servico_nome: renovacao.servico_nome,
+        observacoes: renovacao.observacoes,
+        valor_total: renovacao.valor_total,
+        data,
+        horario: horarioRenovacao,
+        status: "Agendado",
+        plano: renovacao.plano,
+        numero_banho: i + 1,
+        ciclo: numeroNovoCiclo,
+        pagamento_status: "Pendente",
+        forma_pagamento_plano: null,
+      }));
+      const { data: inseridos, error: erroInsercao } = await supabase
+        .from("agendamentos").insert(registros).select("id");
+      if (erroInsercao) throw erroInsercao;
+      if (inseridos?.length !== registros.length) {
+        throw new Error("Não foi possível confirmar todos os banhos criados. Confira a agenda antes de tentar novamente.");
+      }
+      setRenovacao(null);
+      await carregarDados();
+      alert(`Ciclo ${numeroNovoCiclo} criado com sucesso! ${registros.length} banhos agendados.`);
+    } catch (erro: any) {
+      console.error("Erro ao renovar ciclo:", erro);
+      alert(erro?.message || "Não foi possível renovar o ciclo.");
+      await carregarDados();
+    } finally {
+      setSalvandoRenovacao(false);
+    }
   }
 
   function abrirNovoAgendamento(data?: string) {
@@ -1352,6 +1479,17 @@ export default function AgendaPage() {
               Editar / Reagendar
             </button>
 
+            {concluido && podeRenovarCiclo(agendamento) && (
+              <button
+                type="button"
+                onClick={() => abrirRenovacao(agendamento)}
+                disabled={salvandoRenovacao}
+                className="rounded-xl border border-emerald-600 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
+              >
+                🔄 Gerar próximo ciclo
+              </button>
+            )}
+
             {!concluido && !cancelado && (
               <button
                 type="button"
@@ -1710,6 +1848,60 @@ export default function AgendaPage() {
           </div>
         </section>
       </div>
+
+      {renovacao && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
+            <h3 className="text-xl font-extrabold text-emerald-950">🔄 Gerar próximo ciclo</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Pet: <strong>{renovacao.petNome}</strong> • {renovacao.plano} • Novo ciclo {Number(renovacao.ciclo) + 1}
+            </p>
+            <p className="mt-1 text-sm text-gray-600">
+              Serviço: {obterNomeServico(renovacao)} • Valor do ciclo: {formatarValor(renovacao.valor_total)}
+            </p>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-gray-700">Data do primeiro banho</label>
+                <input type="date" value={dataInicioRenovacao}
+                  min={adicionarDias(renovacao.data, 1)}
+                  onChange={e => setDataInicioRenovacao(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-gray-700">Turno</label>
+                <select value={horarioRenovacao} onChange={e => setHorarioRenovacao(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2">
+                  <option value="08:00">Manhã — 08:00</option>
+                  <option value="13:30">Tarde — 13:30</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+              <p className="mb-3 font-bold text-emerald-950">Confira as datas antes de salvar</p>
+              {datasRenovacao.map((data, i) => (
+                <p key={data} className="border-b border-emerald-100 py-2 text-sm last:border-0">
+                  <strong>{i + 1}º banho:</strong> {formatarDataLocal(data)} • {horarioRenovacao}
+                </p>
+              ))}
+              {datasRenovacao.length === 0 && <p className="text-sm text-red-700">Informe uma data válida.</p>}
+            </div>
+            <p className="mt-4 text-sm text-gray-600">
+              O histórico será mantido. O pagamento do novo ciclo ficará pendente e deverá ser tratado na página Pagamentos.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button type="button" onClick={() => setRenovacao(null)} disabled={salvandoRenovacao}
+                className="rounded-xl border border-gray-300 px-4 py-3 font-semibold text-gray-700 disabled:opacity-50">
+                Cancelar
+              </button>
+              <button type="button" onClick={() => void confirmarRenovacao()}
+                disabled={salvandoRenovacao || datasRenovacao.length === 0}
+                className="rounded-xl bg-emerald-700 px-4 py-3 font-bold text-white hover:bg-emerald-800 disabled:opacity-50">
+                {salvandoRenovacao ? "Salvando..." : "Confirmar e gerar ciclo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modalAgendamento && perfilUsuario && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
