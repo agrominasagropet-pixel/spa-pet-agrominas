@@ -789,10 +789,12 @@ export default function AgendaPage() {
     if (Number(ag.ciclo) !== maiorCiclo) return false;
     // Não permitir renovação enquanto houver banhos anteriores pendentes.
     const doCiclo = ciclos.filter(a => a.ciclo === ag.ciclo);
-    if (doCiclo.length !== total ||
-        !Array.from({ length: total }, (_, i) => i + 1).every(n =>
-          doCiclo.some(a => a.numero_banho === n && estaConcluido(a))
-        )) return false;
+    // Aceita registros históricos repetidos, mas exige todos os banhos numerados
+    // concluídos. Um ciclo posterior continua impedindo nova renovação.
+    if (!Array.from({ length: total }, (_, i) => i + 1).every(n =>
+      doCiclo.some(a => Number(a.numero_banho) === n && estaConcluido(a))
+    )) return false;
+    if (doCiclo.some(a => !estaConcluido(a))) return false;
     return true;
   }
 
@@ -858,9 +860,10 @@ export default function AgendaPage() {
       }
       // Verifica também se os banhos do ciclo de origem continuam concluídos.
       const origem = ativos.filter(a => Number(a.ciclo) === Number(renovacao.ciclo));
-      if (origem.length !== quantidadeRenovacao ||
+      if (origem.some(a => !["concluido", "finalizado"].includes(statusNormalizado(a.status)) &&
+            !atendimentos.some(at => at.agendamento_id === a.id)) ||
           !Array.from({ length: quantidadeRenovacao }, (_, i) => i + 1).every(n =>
-            origem.some(a => a.numero_banho === n &&
+            origem.some(a => Number(a.numero_banho) === n &&
               (["concluido", "finalizado"].includes(statusNormalizado(a.status)) ||
                 atendimentos.some(at => at.agendamento_id === a.id)))
           )) {
@@ -1271,11 +1274,21 @@ export default function AgendaPage() {
       if (atualizacao.error) {
         throw new Error("O atendimento foi registrado, mas o status não foi atualizado. Atualize a página e confira antes de tentar novamente.");
       }
-      await carregarDados();
+      // Atualização local: mantém a lista montada, a posição de rolagem e a ordem.
+      setAgendamentos(anteriores => anteriores.map(item =>
+        item.id === ag.id ? { ...item, status: "Concluído" } : item
+      ));
+      setAtendimentos(anteriores => [...anteriores, {
+        id: insercao.data![0].id,
+        agendamento_id: ag.id,
+        pet_id: ag.pet_id,
+        data: ag.data,
+        valor: ehAdmin ? (ag.valor_total ?? 0) : null,
+        forma_pagamento: null,
+      }]);
     } catch (erro: any) {
       console.error("Erro ao concluir atendimento:", erro);
       alert(erro?.message || "Não foi possível concluir o atendimento.");
-      await carregarDados();
     } finally {
       registroAtendimentoEmAndamento.current = false;
       setSalvando(false);
@@ -1355,7 +1368,10 @@ export default function AgendaPage() {
         `${item.petNome || ""} ${item.tutorNome || ""}`.toLocaleLowerCase("pt-BR").includes(buscaAgenda.trim().toLocaleLowerCase("pt-BR"))
     )
     .sort((a, b) =>
-      formatarHorario(a.horario).localeCompare(formatarHorario(b.horario))
+      formatarHorario(a.horario).localeCompare(formatarHorario(b.horario)) ||
+      (a.tutorNome || "").localeCompare(b.tutorNome || "", "pt-BR") ||
+      (a.petNome || "").localeCompare(b.petNome || "", "pt-BR") ||
+      a.id.localeCompare(b.id)
     );
 
   const agendamentosManha = agendamentosDoDia.filter(
@@ -1539,7 +1555,7 @@ export default function AgendaPage() {
                 disabled={salvandoRenovacao}
                 className="rounded-xl border border-emerald-600 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
               >
-                🔄 Gerar próximo ciclo
+                🔄 Renovar ciclo
               </button>
             )}
 
@@ -1835,7 +1851,7 @@ export default function AgendaPage() {
       {renovacao && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-[3px]">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl md:p-8">
-            <h3 className="text-xl font-extrabold text-emerald-950">🔄 Gerar próximo ciclo</h3>
+            <h3 className="text-xl font-extrabold text-emerald-950">🔄 Renovar ciclo</h3>
             <p className="mt-2 text-sm text-gray-600">
               Pet: <strong>{renovacao.petNome}</strong> • {renovacao.plano} • Novo ciclo {Number(renovacao.ciclo) + 1}
             </p>
