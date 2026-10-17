@@ -553,6 +553,7 @@ export default function AgendaPage() {
   const [horarioAgendamento, setHorarioAgendamento] = useState("08:00");
   const [observacoes, setObservacoes] = useState("");
   const [valorAgendamento, setValorAgendamento] = useState("");
+  const [salvandoValor, setSalvandoValor] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [renovacao, setRenovacao] = useState<Agendamento | null>(null);
   const [dataInicioRenovacao, setDataInicioRenovacao] = useState("");
@@ -880,7 +881,7 @@ export default function AgendaPage() {
         servico_id: renovacao.servico_id,
         servico_nome: ajustarServicoPorBanho(servicoBaseRenovacao, renovacao.plano, i + 1) || null,
         observacoes: renovacao.observacoes,
-        valor_total: renovacao.valor_total,
+        valor_total: valorSugerido(renovacao),
         data,
         horario: horarioRenovacao,
         status: "Agendado",
@@ -923,6 +924,61 @@ export default function AgendaPage() {
     setModalAgendamento(true);
   }
 
+  // Para pacotes, o valor pertence ao ciclo inteiro, não a um banho isolado.
+  function banhosDoMesmoCiclo(ag: Agendamento) {
+    if (!ehPlano(ag)) return [ag];
+    return agendamentos.filter(a => a.pet_id === ag.pet_id &&
+      a.plano === ag.plano && a.ciclo === ag.ciclo && !estaCancelado(a));
+  }
+
+  function valorSugerido(ag: Agendamento) {
+    if (ag.valor_total !== null && Number(ag.valor_total) > 0) return Number(ag.valor_total);
+    const outros = banhosDoMesmoCiclo(ag).find(a =>
+      a.valor_total !== null && Number(a.valor_total) > 0);
+    if (outros) return Number(outros.valor_total);
+    // Preço de serviço não é usado como preço de pacote: pode ser por banho.
+    if (!ehPlano(ag)) {
+      const preco = servicos.find(s => s.id === ag.servico_id)?.preco;
+      if (preco !== null && preco !== undefined && preco > 0) return preco;
+    }
+    return ag.valor_total;
+  }
+
+  async function salvarCorrecaoValor(ag: Agendamento, textoDigitado: string) {
+    if (!ehAdmin || salvandoValor) return false;
+    const texto = textoDigitado.trim();
+    const valor = Number(texto.replace(",", "."));
+    if (!texto || !/^\d+(?:[,.]\d{1,2})?$/.test(texto) || !Number.isFinite(valor)) {
+      alert("Informe um valor válido, por exemplo 180,00."); return false;
+    }
+    const registros = banhosDoMesmoCiclo(ag);
+    if (registros.length === 0) { alert("Não foi possível identificar o ciclo."); return false; }
+    const pago = ehPlano(ag) && pagamentosPlanos.some(p =>
+      p.pet_id === ag.pet_id && p.ciclo === ag.ciclo);
+    const aviso = pago
+      ? "\nATENÇÃO: existe pagamento registrado. O valor do pagamento NÃO será alterado."
+      : "\nOs pagamentos já registrados NÃO serão alterados.";
+    if (!window.confirm(`Confirmar valor de ${formatarValor(valor)} para ${ag.petNome}?\n` +
+      (ehPlano(ag) ? `Serão atualizados ${registros.length} banhos deste ciclo.` : "Será atualizado este agendamento.") + aviso)) return false;
+    setSalvandoValor(true);
+    try {
+      const ids = registros.map(a => a.id);
+      const resposta = await supabase.from("agendamentos")
+        .update({ valor_total: valor }).in("id", ids).select("id");
+      if (resposta.error) throw resposta.error;
+      if (resposta.data?.length !== ids.length) throw new Error("Nem todos os registros foram confirmados. Atualize a Agenda e confira os valores.");
+      const conjunto = new Set(ids);
+      setAgendamentos(anteriores => anteriores.map(a =>
+        conjunto.has(a.id) ? { ...a, valor_total: valor } : a));
+      return true;
+    } catch (erro: any) {
+      console.error("Erro ao corrigir valor:", erro);
+      alert(erro?.message || "Não foi possível corrigir o valor.");
+      await carregarDados();
+      return false;
+    } finally { setSalvandoValor(false); }
+  }
+
   function abrirEdicao(agendamento: Agendamento) {
     setAgendamentoSelecionado(agendamento);
     setPetSelecionado(agendamento.pet_id);
@@ -944,8 +1000,8 @@ export default function AgendaPage() {
     setObservacoes(agendamento.observacoes || "");
 
     setValorAgendamento(
-      agendamento.valor_total !== null
-        ? String(agendamento.valor_total).replace(".", ",")
+      valorSugerido(agendamento) !== null
+        ? String(valorSugerido(agendamento)).replace(".", ",")
         : ""
     );
 
@@ -1050,7 +1106,15 @@ export default function AgendaPage() {
     }
 
     if (agendamentoSelecionado && estaConcluido(agendamentoSelecionado)) {
-      alert("Um banho concluído não pode ser reagendado.");
+      if (!ehAdmin) return;
+      if (dataAgendamento !== agendamentoSelecionado.data ||
+          formatarHorario(horarioAgendamento) !== formatarHorario(agendamentoSelecionado.horario) ||
+          observacoes !== (agendamentoSelecionado.observacoes || "")) {
+        alert("Em banhos concluídos, somente o valor pode ser alterado.");
+        return;
+      }
+      const ok = await salvarCorrecaoValor(agendamentoSelecionado, valorAgendamento);
+      if (ok) { setModalAgendamento(false); setAgendamentoSelecionado(null); }
       return;
     }
     if (agendamentoSelecionado && modoReagendamento === "ciclo") {
@@ -1184,6 +1248,15 @@ export default function AgendaPage() {
         if (resposta.error) throw resposta.error;
       }
 
+      if (agendamentoSelecionado && ehAdmin &&
+          valorAgendamento.trim() !== "" &&
+          Number(valorAgendamento.replace(",", ".")) !== agendamentoSelecionado.valor_total) {
+        const ok = await salvarCorrecaoValor(agendamentoSelecionado, valorAgendamento);
+        if (!ok) {
+          alert("As alterações do agendamento podem ter sido salvas, mas o valor não foi confirmado. Confira antes de continuar.");
+          return;
+        }
+      }
       setModalAgendamento(false);
       setAgendamentoSelecionado(null);
       setMostrarSugestoesPet(false);
@@ -1542,12 +1615,11 @@ export default function AgendaPage() {
             <button
               type="button"
               onClick={() => abrirEdicao(agendamento)}
-              disabled={concluido || cancelado}
+              disabled={cancelado || (concluido && !ehAdmin)}
               className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Editar / Reagendar
             </button>
-
             {concluido && podeRenovarCiclo(agendamento) && (
               <button
                 type="button"
@@ -1915,7 +1987,7 @@ export default function AgendaPage() {
 
                 <p className="mt-1 text-sm text-gray-500">
                   {agendamentoSelecionado
-                    ? "Altere a data, o horário ou as observações. Serviço e valor são preenchidos automaticamente."
+                    ? "Altere os dados e o valor. Em banhos concluídos, somente o valor pode ser corrigido."
                     : "Preencha os dados do atendimento."}
                 </p>
               </div>
@@ -2027,7 +2099,7 @@ export default function AgendaPage() {
                 </div>
               )}
 
-              {agendamentoSelecionado && (
+              {agendamentoSelecionado && !estaConcluido(agendamentoSelecionado) && (
                 <div className="md:col-span-2 rounded-2xl border border-blue-200 bg-blue-50 p-4">
                   <h4 className="font-bold text-blue-950">📅 Como deseja reagendar?</h4>
                   <p className="mt-1 text-sm text-blue-800">Escolha se a mudança afeta um único banho ou todos os banhos do mesmo ciclo.</p>
@@ -2038,7 +2110,7 @@ export default function AgendaPage() {
                       <p className="mt-1 text-xs text-slate-600">Os outros banhos permanecem como estão.</p>
                     </label>
                     <label className={`cursor-pointer rounded-xl border p-3 ${modoReagendamento === "ciclo" ? "border-blue-700 bg-white" : "border-blue-200"}`}>
-                      <input type="radio" name="modo-reagendamento" checked={modoReagendamento === "ciclo"} onChange={() => setModoReagendamento("ciclo")} disabled={!cicloIdentificado || cicloTemConcluidos} className="mr-2" />
+                      <input type="radio" name="modo-reagendamento" checked={modoReagendamento === "ciclo"} onChange={() => setModoReagendamento("ciclo")} disabled={!cicloIdentificado || cicloTemConcluidos || estaConcluido(agendamentoSelecionado)} className="mr-2" />
                       <strong className="text-sm">Todo o ciclo</strong>
                       <p className="mt-1 text-xs text-slate-600">Desloca todas as datas pelo mesmo número de dias e ajusta o turno.</p>
                     </label>
@@ -2071,12 +2143,10 @@ export default function AgendaPage() {
                       <label className="mb-2 block text-sm font-medium text-gray-700">
                         {ehPlano(agendamentoSelecionado) ? "Valor total do ciclo" : "Valor do atendimento"}
                       </label>
-                      <div className="min-h-12 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950">
-                        {agendamentoSelecionado.valor_total === null
-                          ? "Valor não informado no agendamento"
-                          : formatarValor(agendamentoSelecionado.valor_total)}
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">Valor preservado; pagamentos são tratados na página Pagamentos.</p>
+                      <input type="text" inputMode="decimal" value={valorAgendamento}
+                        onChange={e => setValorAgendamento(e.target.value)} placeholder="Ex.: 180,00"
+                        className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-500" />
+                      <p className="mt-1 text-xs text-slate-500">Valor sugerido automaticamente, mas editável. Para planos, vale para todo o ciclo. Pagamentos anteriores não são alterados.</p>
                     </div>
                   )}
                 </>
@@ -2148,6 +2218,7 @@ export default function AgendaPage() {
                   type="date"
                   value={dataAgendamento}
                   onChange={(e) => setDataAgendamento(e.target.value)}
+                  disabled={Boolean(agendamentoSelecionado && estaConcluido(agendamentoSelecionado))}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 />
               </div>
@@ -2162,6 +2233,7 @@ export default function AgendaPage() {
                   onChange={(e) =>
                     setHorarioAgendamento(e.target.value)
                   }
+                  disabled={Boolean(agendamentoSelecionado && estaConcluido(agendamentoSelecionado))}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 >
                   <option value="08:00">08:00</option>
@@ -2177,6 +2249,7 @@ export default function AgendaPage() {
                 <textarea
                   value={observacoes}
                   onChange={(e) => setObservacoes(e.target.value)}
+                  disabled={Boolean(agendamentoSelecionado && estaConcluido(agendamentoSelecionado))}
                   rows={3}
                   placeholder="Observações do agendamento"
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
