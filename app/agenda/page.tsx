@@ -290,6 +290,28 @@ function abrirWhatsApp(
   }
 }
 
+function abrirMensagemWhatsApp(numero: string, mensagem: string) {
+  const telefone = normalizarTelefone(numero);
+  if (!telefone) { alert("Este tutor não possui WhatsApp cadastrado."); return; }
+  const parametros = new URLSearchParams({ phone: telefone, text: mensagem });
+  const janela = window.open(`https://web.whatsapp.com/send/?${parametros.toString()}`, NOME_JANELA_WHATSAPP);
+  if (janela) janela.focus();
+  else alert("Permita pop-ups para abrir o WhatsApp Web.");
+}
+
+function avisarPetsProntos(numero: string, tutor: string, nomes: string[]) {
+  const lista = nomes.map(nome => `🐾 ${nome}`).join("\n");
+  const mensagem = [
+    `Olá, ${tutor}! 🐾`, "",
+    "Temos uma ótima notícia! 😊", "",
+    nomes.length === 1 ? `O pet ${nomes[0]} já está prontinho! 🐶💚` : "Seus pets já estão prontinhos! 🐶💚",
+    nomes.length > 1 ? lista : "", "",
+    "Todos os atendimentos foram concluídos e os pets já estão disponíveis para retirada.", "",
+    "Obrigado pela confiança! 🐾", "SPA PET AGROMINAS"
+  ].filter((linha, i, arr) => linha !== "" || arr[i - 1] !== "").join("\n");
+  abrirMensagemWhatsApp(numero, mensagem);
+}
+
 function abrirWhatsAppGrupo(
   numero: string,
   tutorNome: string,
@@ -556,6 +578,8 @@ export default function AgendaPage() {
   const [salvandoValor, setSalvandoValor] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [renovacao, setRenovacao] = useState<Agendamento | null>(null);
+  const [renovacoesGrupo, setRenovacoesGrupo] = useState<Agendamento[]>([]);
+  const [tutorRenovacao, setTutorRenovacao] = useState<{ nome: string; whatsapp: string } | null>(null);
   const [dataInicioRenovacao, setDataInicioRenovacao] = useState("");
   const [horarioRenovacao, setHorarioRenovacao] = useState("08:00");
   const [salvandoRenovacao, setSalvandoRenovacao] = useState(false);
@@ -799,6 +823,56 @@ export default function AgendaPage() {
     return true;
   }
 
+  // Aviso é independente da criação de ciclos: vale também para ciclos históricos.
+  function ultimoBanhoConcluidoDoPacote(ag: Agendamento) {
+    if (estaCancelado(ag) || !ehPlano(ag) || !estaConcluido(ag)) return false;
+    const total = ag.plano === "Quinzenal" ? 2 : ag.plano === "Mensal" ? 4 : 0;
+    return total > 0 && Number(ag.numero_banho) === total;
+  }
+
+  function avisarRenovacaoWhatsApp(grupo: GrupoTutor) {
+    const candidatos = grupo.agendamentos.filter(ultimoBanhoConcluidoDoPacote);
+    const unicos = candidatos.filter((a, i) => candidatos.findIndex(b => b.pet_id === a.pet_id) === i);
+    if (!unicos.length) return;
+    const telefone = normalizarTelefone(grupo.whatsapp);
+    if (!telefone) { alert("Este tutor não possui WhatsApp cadastrado."); return; }
+    const hoje = obterDataLocal();
+    const linhas = unicos.flatMap(ag => {
+      const intervalo = ag.plano === "Quinzenal" ? 14 : 7;
+      const quantidade = ag.plano === "Quinzenal" ? 2 : 4;
+      let inicio = adicionarDias(ag.data, intervalo);
+      while (inicio <= hoje) inicio = adicionarDias(inicio, intervalo);
+      const datas = Array.from({length: quantidade}, (_, i) =>
+        `${i + 1}º banho: ${formatarDataLocal(adicionarDias(inicio, i * intervalo))} às ${formatarHorario(ag.horario)}`);
+      return [`🐾 ${ag.petNome || "Pet"} — plano ${ag.plano}`, ...datas, ""];
+    });
+    const mensagem = [
+      `Olá, ${grupo.tutorNome}! 🐾`, "",
+      "O ciclo de banho e tosa do(s) pet(s) abaixo foi concluído no SPA PET AGROMINAS. 💚", "",
+      "Informamos as próximas datas previstas para o novo ciclo:", "",
+      ...linhas,
+      "🐶💚 Agradecemos pela confiança e esperamos vocês nas próximas datas!",
+      "", "SPA PET AGROMINAS 🐾"
+    ].join("\n");
+    const parametros = new URLSearchParams({phone: telefone, text: mensagem});
+    const janela = window.open(`https://web.whatsapp.com/send/?${parametros.toString()}`, NOME_JANELA_WHATSAPP);
+    if (janela) janela.focus();
+    else alert("Permita pop-ups para abrir o WhatsApp.");
+  }
+
+  function abrirRenovacaoGrupo(grupo: GrupoTutor) {
+    const elegiveis = grupo.agendamentos.filter(a => podeRenovarCiclo(a));
+    const unicos = elegiveis.filter((a, indice) => elegiveis.findIndex(b => b.pet_id === a.pet_id) === indice);
+    if (!unicos.length) return;
+    const primeiro = unicos[0];
+    const intervalo = primeiro.plano === "Quinzenal" ? 14 : 7;
+    setDataInicioRenovacao(adicionarDias(primeiro.data, intervalo));
+    setHorarioRenovacao(formatarHorario(primeiro.horario));
+    setRenovacoesGrupo(unicos);
+    setTutorRenovacao({ nome: grupo.tutorNome, whatsapp: grupo.whatsapp });
+    setRenovacao(primeiro);
+  }
+
   function abrirRenovacao(ag: Agendamento) {
     if (!podeRenovarCiclo(ag)) {
       alert("Conclua os banhos do ciclo atual antes de renovar.");
@@ -807,6 +881,8 @@ export default function AgendaPage() {
     const intervalo = ag.plano === "Quinzenal" ? 14 : 7;
     setDataInicioRenovacao(adicionarDias(ag.data, intervalo));
     setHorarioRenovacao(formatarHorario(ag.horario));
+    setRenovacoesGrupo([ag]);
+    setTutorRenovacao({ nome: ag.tutorNome || "Tutor", whatsapp: ag.whatsapp || "" });
     setRenovacao(ag);
   }
 
@@ -818,95 +894,97 @@ export default function AgendaPage() {
     : [];
 
   async function confirmarRenovacao() {
-    if (!renovacao || salvandoRenovacao) return;
-    if (!perfilUsuario || !podeRenovarCiclo(renovacao)) {
-      alert("Não foi possível validar o ciclo. Atualize a agenda e tente novamente.");
-      return;
+    if (!renovacao || salvandoRenovacao || !perfilUsuario) return;
+    const selecionados = renovacoesGrupo.length ? renovacoesGrupo : [renovacao];
+    if (!selecionados.every(podeRenovarCiclo)) {
+      alert("Há ciclos que não estão prontos para renovação. Atualize a Agenda."); return;
     }
-    if (!dataValida(dataInicioRenovacao) || datasRenovacao.length !== quantidadeRenovacao) {
-      alert("Selecione uma data inicial válida.");
-      return;
+    if (!dataValida(dataInicioRenovacao) || !["08:00", "13:30"].includes(horarioRenovacao)) {
+      alert("Informe uma data e um turno válidos."); return;
     }
-    if (dataInicioRenovacao <= renovacao.data) {
-      alert("O novo ciclo precisa começar depois do último banho do ciclo anterior.");
-      return;
+    const planos = selecionados.map(ag => {
+      const quantidade = ag.plano === "Quinzenal" ? 2 : 4;
+      const intervalo = ag.plano === "Quinzenal" ? 14 : 7;
+      return {
+        ag,
+        ciclo: Number(ag.ciclo) + 1,
+        datas: Array.from({ length: quantidade }, (_, i) => adicionarDias(dataInicioRenovacao, i * intervalo))
+      };
+    });
+    if (planos.some(item => dataInicioRenovacao <= item.ag.data)) {
+      alert("O novo ciclo precisa começar depois do último banho de todos os pets."); return;
     }
-    if (!["08:00", "13:30"].includes(horarioRenovacao)) {
-      alert("Escolha um turno válido.");
-      return;
-    }
-    const numeroNovoCiclo = Number(renovacao.ciclo) + 1;
-    const mensagem = `Confirmar novo ciclo de ${renovacao.petNome || "Pet"}?\n\n` +
-      `Plano: ${renovacao.plano} • Ciclo ${numeroNovoCiclo}\n` +
-      datasRenovacao.map((data, i) => `${i + 1}º banho: ${formatarDataLocal(data)} às ${horarioRenovacao}`).join("\n") +
-      "\n\nO pagamento não será registrado nesta operação.";
-    if (!window.confirm(mensagem)) return;
-
+    const previa = planos.map(item =>
+      `${item.ag.petNome} — ${item.ag.plano} (ciclo ${item.ciclo})\n` +
+      item.datas.map((data, i) => `${i + 1}º banho: ${formatarDataLocal(data)} às ${horarioRenovacao}`).join("\n")
+    ).join("\n\n");
+    if (!window.confirm(`Confirmar renovação?\n\n${previa}\n\nO pagamento ficará pendente.`)) return;
     setSalvandoRenovacao(true);
     try {
-      // Consulta novamente o banco antes de gravar, não apenas a lista em memória.
-      const { data: existentes, error: erroConsulta } = await supabase
-        .from("agendamentos")
-        .select("id, ciclo, data, numero_banho, status")
-        .eq("pet_id", renovacao.pet_id);
-      if (erroConsulta) throw erroConsulta;
-      const ativos = (existentes || []).filter(a =>
-        !["cancelado", "cancelada"].includes(statusNormalizado(a.status))
-      );
-      if (ativos.some(a => Number(a.ciclo) >= numeroNovoCiclo && a.ciclo !== null)) {
-        throw new Error("Já existe um ciclo posterior para este pet. Nenhum novo banho foi criado.");
+      // Valida todos os pets antes de criar qualquer agendamento.
+      for (const item of planos) {
+        const { data: existentes, error } = await supabase.from("agendamentos")
+          .select("id, ciclo, data, numero_banho, status").eq("pet_id", item.ag.pet_id);
+        if (error) throw error;
+        const ativos = (existentes || []).filter(a =>
+          !["cancelado", "cancelada"].includes(statusNormalizado(a.status)));
+        if (ativos.some(a => a.ciclo !== null && Number(a.ciclo) >= item.ciclo))
+          throw new Error(`Já existe ciclo posterior para ${item.ag.petNome}.`);
+        if (ativos.some(a => item.datas.includes(a.data)))
+          throw new Error(`Já existe banho agendado nas novas datas para ${item.ag.petNome}.`);
+        const origem = ativos.filter(a => Number(a.ciclo) === Number(item.ag.ciclo));
+        const concluidoNoBanco = (a: typeof origem[number]) =>
+          ["concluido", "finalizado"].includes(statusNormalizado(a.status)) ||
+          atendimentos.some(at => at.agendamento_id === a.id);
+        if (origem.some(a => !concluidoNoBanco(a)) ||
+            !item.datas.every((_, i) => origem.some(a => Number(a.numero_banho) === i + 1 && concluidoNoBanco(a))))
+          throw new Error(`O ciclo de ${item.ag.petNome} não está completamente concluído.`);
       }
-      if (ativos.some(a => datasRenovacao.includes(a.data))) {
-        throw new Error("Já existe agendamento deste pet em uma das datas escolhidas. Ajuste a data inicial.");
-      }
-      // Verifica também se os banhos do ciclo de origem continuam concluídos.
-      const origem = ativos.filter(a => Number(a.ciclo) === Number(renovacao.ciclo));
-      if (origem.some(a => !["concluido", "finalizado"].includes(statusNormalizado(a.status)) &&
-            !atendimentos.some(at => at.agendamento_id === a.id)) ||
-          !Array.from({ length: quantidadeRenovacao }, (_, i) => i + 1).every(n =>
-            origem.some(a => Number(a.numero_banho) === n &&
-              (["concluido", "finalizado"].includes(statusNormalizado(a.status)) ||
-                atendimentos.some(at => at.agendamento_id === a.id)))
-          )) {
-        throw new Error("O ciclo anterior não está totalmente concluído. Atualize a agenda.");
-      }
-      const primeiroBanhoOrigem = agendamentos.find(a =>
-        a.pet_id === renovacao.pet_id && a.ciclo === renovacao.ciclo && a.numero_banho === 1
-      );
-      const servicoBaseRenovacao = primeiroBanhoOrigem?.servico_nome ||
-        renovacao.servico_nome ||
-        servicos.find(s => s.id === renovacao.servico_id)?.nome || null;
-      const registros = datasRenovacao.map((data, i) => ({
-        pet_id: renovacao.pet_id,
-        servico_id: renovacao.servico_id,
-        servico_nome: ajustarServicoPorBanho(servicoBaseRenovacao, renovacao.plano, i + 1) || null,
-        observacoes: renovacao.observacoes,
-        valor_total: valorSugerido(renovacao),
-        data,
-        horario: horarioRenovacao,
-        status: "Agendado",
-        plano: renovacao.plano,
-        numero_banho: i + 1,
-        ciclo: numeroNovoCiclo,
-        pagamento_status: "Pendente",
-        forma_pagamento_plano: null,
-      }));
+      const registros = planos.flatMap(item => {
+        const primeiroBanho = agendamentos.find(a => a.pet_id === item.ag.pet_id &&
+          a.ciclo === item.ag.ciclo && a.numero_banho === 1);
+        const servicoBase = primeiroBanho?.servico_nome || item.ag.servico_nome ||
+          servicos.find(s => s.id === item.ag.servico_id)?.nome || null;
+        return item.datas.map((data, i) => ({
+          pet_id: item.ag.pet_id,
+          servico_id: item.ag.servico_id,
+          servico_nome: ajustarServicoPorBanho(servicoBase, item.ag.plano, i + 1) || null,
+          observacoes: item.ag.observacoes,
+          valor_total: valorSugerido(item.ag),
+          data, horario: horarioRenovacao, status: "Agendado",
+          plano: item.ag.plano, numero_banho: i + 1, ciclo: item.ciclo,
+          pagamento_status: "Pendente", forma_pagamento_plano: null
+        }));
+      });
       const { data: inseridos, error: erroInsercao } = await supabase
         .from("agendamentos").insert(registros).select("id");
       if (erroInsercao) throw erroInsercao;
-      if (inseridos?.length !== registros.length) {
-        throw new Error("Não foi possível confirmar todos os banhos criados. Confira a agenda antes de tentar novamente.");
-      }
+      if (inseridos?.length !== registros.length)
+        throw new Error("A gravação não foi confirmada integralmente. Confira a agenda.");
+      const tutor = tutorRenovacao;
       setRenovacao(null);
+      setRenovacoesGrupo([]);
+      setTutorRenovacao(null);
       await carregarDados();
-      alert(`Ciclo ${numeroNovoCiclo} criado com sucesso! ${registros.length} banhos agendados.`);
+      alert(`${planos.length} ${planos.length === 1 ? "ciclo renovado" : "ciclos renovados"}! ${registros.length} banhos agendados.`);
+      if (tutor?.whatsapp && window.confirm("Deseja abrir o WhatsApp com as próximas datas dos banhos?")) {
+        const mensagem = [
+          `Olá, ${tutor.nome}! 🐾`, "",
+          "Os novos banhos foram agendados no SPA PET AGROMINAS! 🐶💚", "",
+          ...planos.flatMap(item => [
+            `🐾 ${item.ag.petNome} — Plano ${item.ag.plano}`,
+            ...item.datas.map((data, i) => `📅 ${i + 1}º banho: ${formatarDataLocal(data)} às ${horarioRenovacao}`),
+            ""
+          ]),
+          "Esperamos vocês! 💚", "SPA PET AGROMINAS"
+        ].join("\n");
+        abrirMensagemWhatsApp(tutor.whatsapp, mensagem);
+      }
     } catch (erro: any) {
-      console.error("Erro ao renovar ciclo:", erro);
-      alert(erro?.message || "Não foi possível renovar o ciclo.");
+      console.error("Erro ao renovar ciclos:", erro);
+      alert(erro?.message || "Não foi possível renovar os ciclos.");
       await carregarDados();
-    } finally {
-      setSalvandoRenovacao(false);
-    }
+    } finally { setSalvandoRenovacao(false); }
   }
 
   function abrirNovoAgendamento(data?: string) {
@@ -1594,43 +1672,12 @@ export default function AgendaPage() {
 
             <button
               type="button"
-              onClick={() =>
-                abrirWhatsApp(
-                  "pronto",
-                  agendamento.whatsapp || "",
-                  agendamento.petNome || "Pet",
-                  agendamento.tutorNome || "Tutor",
-                  formatarHorario(agendamento.horario),
-                  pet?.sexo || null,
-                  obterNomeServico(agendamento),
-                  agendamento.data
-                )
-              }
-              disabled={!agendamento.whatsapp || cancelado || !concluido}
-              className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              🐶 Pet pronto
-            </button>
-
-            <button
-              type="button"
               onClick={() => abrirEdicao(agendamento)}
               disabled={cancelado || (concluido && !ehAdmin)}
               className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Editar / Reagendar
             </button>
-            {concluido && podeRenovarCiclo(agendamento) && (
-              <button
-                type="button"
-                onClick={() => abrirRenovacao(agendamento)}
-                disabled={salvandoRenovacao}
-                className="rounded-xl border border-emerald-600 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
-              >
-                🔄 Renovar ciclo
-              </button>
-            )}
-
             {!concluido && !cancelado && (
               <button
                 type="button"
@@ -1692,6 +1739,33 @@ export default function AgendaPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {(() => {
+              const ativos = grupo.agendamentos.filter(a => !estaCancelado(a));
+              const todosProntos = ativos.length > 0 && ativos.every(estaConcluido);
+              const renovaveis = ativos.filter(a => podeRenovarCiclo(a));
+              const avisaveis = ativos.filter(ultimoBanhoConcluidoDoPacote);
+              return <>
+                {todosProntos && <button type="button"
+                  disabled={!grupo.whatsapp}
+                  onClick={() => avisarPetsProntos(grupo.whatsapp, grupo.tutorNome,
+                    ativos.map(a => a.petNome || "Pet"))}
+                  className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-40">
+                  🐶 {ativos.length > 1 ? "Pets prontos" : "Pet pronto"}
+                </button>}
+                {avisaveis.length > 0 && <button type="button"
+                  disabled={!grupo.whatsapp}
+                  onClick={() => avisarRenovacaoWhatsApp(grupo)}
+                  className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-900 hover:bg-sky-100 disabled:opacity-40">
+                  📲 Avisar renovação
+                </button>}
+                {renovaveis.length > 0 && <button type="button"
+                  disabled={salvandoRenovacao}
+                  onClick={() => abrirRenovacaoGrupo(grupo)}
+                  className="rounded-xl border border-emerald-600 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">
+                  🔄 Renovar {renovaveis.length > 1 ? "ciclos" : "ciclo"}
+                </button>}
+              </>;
+            })()}
             {grupo.agendamentos.filter(a => !estaCancelado(a)).length > 1 && (
               <button
                 type="button"
@@ -1925,10 +1999,10 @@ export default function AgendaPage() {
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl md:p-8">
             <h3 className="text-xl font-extrabold text-emerald-950">🔄 Renovar ciclo</h3>
             <p className="mt-2 text-sm text-gray-600">
-              Pet: <strong>{renovacao.petNome}</strong> • {renovacao.plano} • Novo ciclo {Number(renovacao.ciclo) + 1}
+              Tutor: <strong>{tutorRenovacao?.nome || renovacao.tutorNome}</strong> • {renovacoesGrupo.length || 1} {(renovacoesGrupo.length || 1) === 1 ? "pet" : "pets"}
             </p>
             <p className="mt-1 text-sm text-gray-600">
-              Serviço: {obterNomeServico(renovacao)} • Valor do ciclo: {formatarValor(renovacao.valor_total)}
+              Confira as datas dos novos ciclos antes de confirmar.
             </p>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <div>
@@ -1949,18 +2023,25 @@ export default function AgendaPage() {
             </div>
             <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
               <p className="mb-3 font-bold text-emerald-950">Confira as datas antes de salvar</p>
-              {datasRenovacao.map((data, i) => (
-                <p key={data} className="border-b border-emerald-100 py-2 text-sm last:border-0">
-                  <strong>{i + 1}º banho:</strong> {formatarDataLocal(data)} • {horarioRenovacao}
-                </p>
-              ))}
+              {(renovacoesGrupo.length ? renovacoesGrupo : [renovacao]).map(pet => {
+                const quantidade = pet.plano === "Quinzenal" ? 2 : 4;
+                const intervalo = pet.plano === "Quinzenal" ? 14 : 7;
+                const datas = dataValida(dataInicioRenovacao)
+                  ? Array.from({length: quantidade}, (_, i) => adicionarDias(dataInicioRenovacao, i * intervalo)) : [];
+                return <div key={pet.pet_id} className="mb-3 border-b border-emerald-200 pb-2 last:border-0">
+                  <p className="font-bold text-emerald-950">🐾 {pet.petNome} — {pet.plano}</p>
+                  {datas.map((data, i) => <p key={data} className="py-1 text-sm">
+                    <strong>{i + 1}º banho:</strong> {formatarDataLocal(data)} • {horarioRenovacao}
+                  </p>)}
+                </div>;
+              })}
               {datasRenovacao.length === 0 && <p className="text-sm text-red-700">Informe uma data válida.</p>}
             </div>
             <p className="mt-4 text-sm text-gray-600">
               O histórico será mantido. O pagamento do novo ciclo ficará pendente e deverá ser tratado na página Pagamentos.
             </p>
             <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button type="button" onClick={() => setRenovacao(null)} disabled={salvandoRenovacao}
+              <button type="button" onClick={() => { setRenovacao(null); setRenovacoesGrupo([]); setTutorRenovacao(null); }} disabled={salvandoRenovacao}
                 className="rounded-xl border border-gray-300 px-4 py-3 font-semibold text-gray-700 disabled:opacity-50">
                 Cancelar
               </button>
