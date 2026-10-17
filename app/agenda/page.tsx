@@ -396,8 +396,8 @@ function documentoComprovante(conteudo: string, titulo: string) {
       html, body { margin: 0; padding: 0; }
       body { width: 80mm; padding: 5mm 4mm 7mm; color: #000; background: #fff;
              font: 11px/1.45 Arial, Helvetica, sans-serif; overflow-wrap: anywhere; }
-      .marca { text-align: center; font-size: 23px; font-weight: 900; letter-spacing: 1.1px; }
-      .submarca { text-align: center; font-size: 10px; letter-spacing: 1.8px; margin-top: 1px; }
+      .logo-impressao { display: block; width: 47mm; max-height: 42mm; height: auto; object-fit: contain; margin: 0 auto 2mm; }
+      .marca { text-align: center; font-size: 15px; font-weight: 900; letter-spacing: .6px; }
       .documento { text-align: center; font-size: 11px; font-weight: 800; margin: 10px 0; }
       .separador { border: 0; border-top: 1px dashed #000; margin: 10px 0; }
       .linha { display: flex; gap: 5px; margin: 5px 0; align-items: baseline; }
@@ -415,8 +415,8 @@ function documentoComprovante(conteudo: string, titulo: string) {
       .rodape { text-align: center; font-size: 10px; margin-top: 16px; }
       @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style></head><body>
+    <img class="logo-impressao" src="/logo-agrominas-impressao.png" alt="Logo AGROMINAS" />
     <div class="marca">SPA PET AGROMINAS</div>
-    <div class="submarca">BANHO E TOSA</div>
     <hr class="separador" />
     <div class="documento">${escaparHTMLComprovante(titulo)}</div>
     ${conteudo}
@@ -427,7 +427,25 @@ function documentoComprovante(conteudo: string, titulo: string) {
   janela.document.write(html);
   janela.document.close();
   janela.focus();
-  setTimeout(() => { if (!janela.closed) janela.print(); }, 450);
+  // Aguarda a logo carregar antes de abrir a janela de impressão.
+  const imagemLogo = janela.document.querySelector<HTMLImageElement>(".logo-impressao");
+  let impressaoIniciada = false;
+  const iniciarImpressao = () => {
+    if (impressaoIniciada || janela.closed) return;
+    impressaoIniciada = true;
+    janela.focus();
+    janela.print();
+  };
+  if (imagemLogo?.complete) {
+    setTimeout(iniciarImpressao, 250);
+  } else if (imagemLogo) {
+    imagemLogo.addEventListener("load", () => setTimeout(iniciarImpressao, 250), { once: true });
+    imagemLogo.addEventListener("error", () => {
+      alert("A logo não foi carregada. Verifique se o arquivo PNG está na pasta public.");
+    }, { once: true });
+  } else {
+    setTimeout(iniciarImpressao, 250);
+  }
 }
 
 function imprimirComprovante(
