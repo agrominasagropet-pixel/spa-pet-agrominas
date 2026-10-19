@@ -266,9 +266,9 @@ function abrirWhatsApp(
           "",
           `Temos uma ótima notícia! ${sorriso}`,
           "",
-          `O ${nomePet} já está prontinho no SPA PET AGROMINAS. ${cachorro}${coracao}`,
+          `${artigo === "a" ? "A" : "O"} ${nomePet} já está ${artigo === "a" ? "prontinha" : "prontinho"} no SPA PET AGROMINAS. ${cachorro}${coracao}`,
           "",
-          "O banho e tosa foram concluídos e ele já pode ser retirado.",
+          `O banho e tosa foram concluídos e ${artigo === "a" ? "ela" : "ele"} já pode ser ${artigo === "a" ? "retirada" : "retirado"}.`,
           "",
           `Obrigado pela confiança! ${patas}`,
         ].join("\n");
@@ -299,12 +299,15 @@ function abrirMensagemWhatsApp(numero: string, mensagem: string) {
   else alert("Permita pop-ups para abrir o WhatsApp Web.");
 }
 
-function avisarPetsProntos(numero: string, tutor: string, nomes: string[]) {
+function avisarPetsProntos(numero: string, tutor: string, itens: { nome: string; sexo: string | null }[]) {
+  const nomes = itens.map(item => item.nome);
   const lista = nomes.map(nome => `🐾 ${nome}`).join("\n");
+  const feminino = itens.length === 1 && obterArtigoPet(itens[0].sexo) === "a";
+  const todasFemeas = itens.length > 1 && itens.every(item => obterArtigoPet(item.sexo) === "a");
   const mensagem = [
     `Olá, ${tutor}! 🐾`, "",
     "Temos uma ótima notícia! 😊", "",
-    nomes.length === 1 ? `O pet ${nomes[0]} já está prontinho! 🐶💚` : "Seus pets já estão prontinhos! 🐶💚",
+    nomes.length === 1 ? `${feminino ? "A" : "O"} ${nomes[0]} já está ${feminino ? "prontinha" : "prontinho"}! 🐶💚` : `${todasFemeas ? "Suas pets já estão prontinhas" : "Seus pets já estão prontinhos"}! 🐶💚`,
     nomes.length > 1 ? lista : "", "",
     "Todos os atendimentos foram concluídos e os pets já estão disponíveis para retirada.", "",
     "Obrigado pela confiança! 🐾", "SPA PET AGROMINAS"
@@ -1596,6 +1599,206 @@ export default function AgendaPage() {
     return grupos;
   }
 
+  // Agenda de trabalho do SPA: somente informações operacionais.
+  // A imagem é copiada, não salva no computador.
+  async function compartilharAgendaImagem() {
+    const lista = agendamentos
+      .filter((a) => a.data === dataSelecionada && !estaCancelado(a))
+      .sort((a, b) =>
+        formatarHorario(a.horario).localeCompare(formatarHorario(b.horario)) ||
+        (a.tutorNome || "").localeCompare(b.tutorNome || "", "pt-BR") ||
+        (a.petNome || "").localeCompare(b.petNome || "", "pt-BR")
+      );
+
+    if (!lista.length) {
+      alert("Não há pets agendados nesta data para compartilhar.");
+      return;
+    }
+
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+      alert("Abra a Agenda no Chrome em localhost ou HTTPS para copiar a imagem.");
+      return;
+    }
+
+    // A logo oficial já é utilizada na impressão térmica do sistema.
+    const logo = new Image();
+    const logoCarregada = await new Promise<boolean>((resolve) => {
+      let terminou = false;
+      const finalizar = (ok: boolean) => {
+        if (!terminou) { terminou = true; resolve(ok); }
+      };
+      logo.onload = () => finalizar(true);
+      logo.onerror = () => finalizar(false);
+      logo.src = "/logo-agrominas-impressao.png";
+      if (logo.complete) finalizar(logo.naturalWidth > 0);
+    });
+
+    const largura = 1500;
+    const margem = 42;
+    const larguraTabela = largura - margem * 2;
+    const larguras = [46, 265, 170, 180, 440, 315];
+    const titulos = ["#", "TUTOR", "PET", "PLANO / BANHO", "SERVIÇO A REALIZAR", "OBSERVAÇÕES"];
+    const ctxMedida = document.createElement("canvas").getContext("2d");
+    if (!ctxMedida) { alert("Não foi possível preparar a imagem."); return; }
+
+    const linhasTexto = (ctx: CanvasRenderingContext2D, texto: string, larguraMax: number) => {
+      const palavras = (texto || "—").trim().split(/\s+/);
+      const linhas: string[] = [];
+      let linha = "";
+      for (const palavra of palavras) {
+        const proposta = linha ? `${linha} ${palavra}` : palavra;
+        if (ctx.measureText(proposta).width > larguraMax && linha) {
+          linhas.push(linha);
+          linha = palavra;
+        } else {
+          linha = proposta;
+        }
+      }
+      if (linha) linhas.push(linha);
+      return linhas.length ? linhas : ["—"];
+    };
+
+    type LinhaAgenda = { ag: Agendamento; altura: number; textos: string[][] };
+    type TurnoAgenda = { titulo: string; horario: string; linhas: LinhaAgenda[] };
+    const turnos: TurnoAgenda[] = [
+      { titulo: "MANHÃ", horario: "08:00", linhas: [] },
+      { titulo: "TARDE", horario: "13:30", linhas: [] },
+    ];
+
+    for (const ag of lista) {
+      const plano = ag.plano === "Mensal" || ag.plano === "Quinzenal" ? ag.plano : "Avulso";
+      const banho = ag.numero_banho ? `${ag.numero_banho}º${ag.ciclo && ag.ciclo > 1 ? ` / C${ag.ciclo}` : ""}` : "1º";
+      const textosBase = ["", ag.tutorNome || "Tutor não informado", ag.petNome || "Pet",
+        `${plano} • ${banho}`, obterNomeServico(ag), ag.observacoes?.trim() || "—"];
+      const textos = textosBase.map((texto, i) => {
+        ctxMedida.font = `${i === 1 || i === 2 ? "bold " : ""}22px Arial, sans-serif`;
+        return linhasTexto(ctxMedida, texto, larguras[i] - 22);
+      });
+      const maiorNumeroLinhas = Math.max(1, ...textos.map((item) => item.length));
+      const altura = Math.max(68, maiorNumeroLinhas * 30 + 24);
+      turnos[obterTurno(ag.horario) === "Manhã" ? 0 : 1].linhas.push({ ag, altura, textos });
+    }
+
+    const alturaCabecalho = 180;
+    const alturaTituloTurno = 70;
+    const alturaCabecalhoTabela = 46;
+    const espacoTurnos = 18;
+    const alturaRodape = 120;
+    const alturaTotal = alturaCabecalho + 28 + turnos.reduce((soma, turno) =>
+      soma + alturaTituloTurno + alturaCabecalhoTabela +
+      (turno.linhas.length ? turno.linhas.reduce((acc, linha) => acc + linha.altura, 0) : 70) +
+      espacoTurnos, 0) + alturaRodape;
+
+    // Não corta informações: se a imagem ultrapassar o limite de altura, informa o usuário.
+    if (alturaTotal > 14000) {
+      alert("A agenda deste dia é grande demais para copiar em uma única imagem. Entre em contato para habilitar a divisão em páginas.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = largura;
+    canvas.height = alturaTotal;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { alert("Não foi possível desenhar a imagem."); return; }
+
+    const bloco = (x: number, y: number, w: number, h: number, cor: string) => {
+      ctx.fillStyle = cor;
+      ctx.fillRect(x, y, w, h);
+    };
+    const escrever = (texto: string, x: number, y: number, cor: string, fonte: string) => {
+      ctx.fillStyle = cor;
+      ctx.font = fonte;
+      ctx.fillText(texto, x, y);
+    };
+    const arredondado = (x: number, y: number, w: number, h: number, raio: number, cor: string) => {
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, raio);
+      ctx.fillStyle = cor;
+      ctx.fill();
+    };
+
+    bloco(0, 0, largura, alturaTotal, "#f8fbfa");
+    bloco(0, 0, largura, alturaCabecalho, "#064e3b");
+
+    // A logo original é mantida em seu fundo branco, sem modificar suas cores.
+    if (logoCarregada) {
+      arredondado(margem, 24, 155, 132, 14, "#ffffff");
+      const escala = Math.min(139 / logo.naturalWidth, 119 / logo.naturalHeight);
+      const w = logo.naturalWidth * escala;
+      const h = logo.naturalHeight * escala;
+      ctx.drawImage(logo, margem + (155 - w) / 2, 24 + (132 - h) / 2, w, h);
+    } else {
+      escrever("AG", margem + 24, 105, "#ffffff", "bold 55px Arial, sans-serif");
+    }
+    escrever("AGROMINAS", 220, 83, "#ffffff", "bold 53px Arial, sans-serif");
+    escrever("BANHO E TOSA", 223, 121, "#a7f3d0", "bold 25px Arial, sans-serif");
+    bloco(650, 36, 2, 107, "#6ee7b7");
+    escrever("AGENDA DO DIA", 690, 80, "#ffffff", "bold 48px Arial, sans-serif");
+    escrever(nomeDiaSelecionado, 692, 121, "#d1fae5", "26px Arial, sans-serif");
+    escrever("PROGRAMAÇÃO DA EQUIPE DO SPA", 692, 151, "#a7f3d0", "bold 18px Arial, sans-serif");
+
+    let y = alturaCabecalho + 28;
+    for (const turno of turnos) {
+      arredondado(margem, y, larguraTabela, 60, 12, "#d1fae5");
+      escrever(`${turno.titulo}  •  ${turno.horario}`, margem + 20, y + 40, "#064e3b", "bold 30px Arial, sans-serif");
+      const totalTurno = `${turno.linhas.length} ${turno.linhas.length === 1 ? "PET" : "PETS"}`;
+      ctx.font = "bold 23px Arial, sans-serif";
+      const larguraSelo = Math.max(125, ctx.measureText(totalTurno).width + 42);
+      arredondado(largura - margem - larguraSelo - 15, y + 10, larguraSelo, 40, 20, "#059669");
+      escrever(totalTurno, largura - margem - larguraSelo + 6, y + 38, "#ffffff", "bold 23px Arial, sans-serif");
+      y += alturaTituloTurno;
+
+      bloco(margem, y, larguraTabela, alturaCabecalhoTabela, "#065f46");
+      let x = margem;
+      titulos.forEach((titulo, i) => {
+        escrever(titulo, x + 10, y + 31, "#ffffff", "bold 17px Arial, sans-serif");
+        x += larguras[i];
+      });
+      y += alturaCabecalhoTabela;
+
+      if (!turno.linhas.length) {
+        bloco(margem, y, larguraTabela, 70, "#ffffff");
+        escrever("Nenhum pet agendado neste turno", margem + 20, y + 45, "#64748b", "23px Arial, sans-serif");
+        y += 70;
+      }
+      turno.linhas.forEach((linha, indice) => {
+        bloco(margem, y, larguraTabela, linha.altura, indice % 2 ? "#eef5f3" : "#ffffff");
+        bloco(margem, y + linha.altura - 1, larguraTabela, 1, "#dbe8e3");
+        let x = margem;
+        larguras.forEach((larguraColuna, coluna) => {
+          if (coluna) bloco(x, y, 1, linha.altura, "#e2e8e5");
+          if (coluna === 0) {
+            escrever(String(indice + 1), x + 15, y + 36, "#334155", "bold 22px Arial, sans-serif");
+          } else {
+            linha.textos[coluna].forEach((texto, indiceTexto) => {
+              escrever(texto, x + 10, y + 33 + indiceTexto * 30,
+                coluna === 2 ? "#065f46" : coluna === 4 ? "#0f172a" : coluna === 5 && texto !== "—" ? "#065f46" : "#334155",
+                `${coluna === 1 || coluna === 2 || coluna === 4 || (coluna === 5 && texto !== "—") ? "bold " : ""}22px Arial, sans-serif`);
+            });
+          }
+          x += larguraColuna;
+        });
+        y += linha.altura;
+      });
+      y += espacoTurnos;
+    }
+
+    arredondado(margem, y + 10, 345, 78, 13, "#d1fae5");
+    escrever("TOTAL DO DIA", margem + 20, y + 40, "#065f46", "bold 22px Arial, sans-serif");
+    escrever(`${lista.length} ${lista.length === 1 ? "PET" : "PETS"}`, margem + 20, y + 75, "#064e3b", "bold 34px Arial, sans-serif");
+    escrever("AGROMINAS  •  USO INTERNO DA EQUIPE", 820, y + 61, "#64748b", "bold 21px Arial, sans-serif");
+
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("A imagem não pôde ser gerada.");
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      alert("Agenda copiada! Abra o grupo das meninas no WhatsApp, pressione Ctrl + V e envie.");
+    } catch (erro) {
+      console.error("Erro ao copiar agenda:", erro);
+      alert("Não foi possível copiar a agenda. Confira a permissão da área de transferência no Chrome.");
+    }
+  }
+
   function renderPetDoGrupo(agendamento: Agendamento) {
     const concluido = estaConcluido(agendamento);
     const cancelado = estaCancelado(agendamento);
@@ -1748,7 +1951,7 @@ export default function AgendaPage() {
                 {todosProntos && <button type="button"
                   disabled={!grupo.whatsapp}
                   onClick={() => avisarPetsProntos(grupo.whatsapp, grupo.tutorNome,
-                    ativos.map(a => a.petNome || "Pet"))}
+                    ativos.map(a => ({ nome: a.petNome || "Pet", sexo: pets.find(p => p.id === a.pet_id)?.sexo || null })))}
                   className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-40">
                   🐶 {ativos.length > 1 ? "Pets prontos" : "Pet pronto"}
                 </button>}
@@ -1949,6 +2152,14 @@ export default function AgendaPage() {
                       <button type="button" onClick={irParaHoje} className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 hover:bg-slate-50">Hoje</button>
                       <button type="button" onClick={irParaProximoDia} aria-label="Próximo dia" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-xl text-slate-600 hover:bg-slate-50">›</button>
                     </div>
+                  </div>
+                  <div className="mt-4">
+                    <button type="button" onClick={() => void compartilharAgendaImagem()}
+                      disabled={carregando || totalDia === 0}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-extrabold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto">
+                      📲 Compartilhar agenda
+                    </button>
+                    <p className="mt-2 text-xs text-slate-500">Imagem para a equipe com tutor, pet, plano/banho, serviço e observações. Sem situação, dados financeiros ou telefone.</p>
                   </div>
                   <div className="relative mt-5">
                     <label htmlFor="busca-agenda" className="sr-only">Buscar pet ou tutor neste dia</label>
