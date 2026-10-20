@@ -77,7 +77,7 @@ function formatarData(data: string) {
 }
 
 function formatarHorario(horario: string | null | undefined) {
-  if (!horario) return "08:00";
+  if (!horario) return "08:30";
 
   const partes = horario.split(":");
   const horas = (partes[0] || "08").padStart(2, "0");
