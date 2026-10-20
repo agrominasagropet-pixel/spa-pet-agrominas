@@ -309,7 +309,7 @@ function valorNumerico(valor: string) {
 function horarioDoTurno(turno: Turno) {
   return turno === "Tarde"
     ? "13:30"
-    : "08:00";
+    : "08:30";
 }
 
 function formatarCep(valor: string) {
@@ -2425,7 +2425,7 @@ export default function ClientesPetsPage() {
                                     .turno ===
                                   "Tarde"
                                     ? "🌤️ 13:30"
-                                    : "☀️ 08:00"}
+                                    : "☀️ 08:30"}
                                 </span>
                               </div>
 
@@ -3227,7 +3227,7 @@ export default function ClientesPetsPage() {
                               className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                             >
                               <option value="Manhã">
-                                Manhã — 08:00
+                                Manhã — 08:30
                               </option>
 
                               <option value="Tarde">
@@ -3467,7 +3467,7 @@ export default function ClientesPetsPage() {
                             .turno ===
                           "Tarde"
                             ? "🌤️ 13:30"
-                            : "☀️ 08:00"}
+                            : "☀️ 08:30"}
                         </span>
                       </div>
 
@@ -3955,7 +3955,7 @@ export default function ClientesPetsPage() {
                     className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500"
                   >
                     <option value="Manhã">
-                      Manhã — 08:00
+                      Manhã — 08:30
                     </option>
 
                     <option value="Tarde">
