@@ -116,7 +116,7 @@ function formatarDataLocal(data: string) {
 }
 
 function formatarHorario(horario: string | null | undefined) {
-  if (!horario) return "08:00";
+  if (!horario) return "08:30";
 
   const partes = horario.trim().split(":");
 
@@ -340,7 +340,7 @@ function abrirWhatsAppGrupo(
   const relogio = String.fromCodePoint(0x23F0);
   const sorriso = String.fromCodePoint(0x1F60A);
 
-  const horarioFormatado = formatarHorario(horario || "08:00");
+  const horarioFormatado = formatarHorario(horario || "08:30");
   const listaPets = itens
     .map((item) => `${patas} ${item.petNome} — ${item.servicoNome}`)
     .join("\n");
@@ -575,7 +575,7 @@ export default function AgendaPage() {
     useState<Frequencia>("Avulso");
   const [servicoSelecionado, setServicoSelecionado] = useState("");
   const [dataAgendamento, setDataAgendamento] = useState("");
-  const [horarioAgendamento, setHorarioAgendamento] = useState("08:00");
+  const [horarioAgendamento, setHorarioAgendamento] = useState("08:30");
   const [observacoes, setObservacoes] = useState("");
   const [valorAgendamento, setValorAgendamento] = useState("");
   const [salvandoValor, setSalvandoValor] = useState(false);
@@ -584,7 +584,7 @@ export default function AgendaPage() {
   const [renovacoesGrupo, setRenovacoesGrupo] = useState<Agendamento[]>([]);
   const [tutorRenovacao, setTutorRenovacao] = useState<{ nome: string; whatsapp: string } | null>(null);
   const [dataInicioRenovacao, setDataInicioRenovacao] = useState("");
-  const [horarioRenovacao, setHorarioRenovacao] = useState("08:00");
+  const [horarioRenovacao, setHorarioRenovacao] = useState("08:30");
   const [salvandoRenovacao, setSalvandoRenovacao] = useState(false);
   const registroAtendimentoEmAndamento = useRef(false);
   const [modoReagendamento, setModoReagendamento] = useState<"unico" | "ciclo">("unico");
@@ -826,41 +826,58 @@ export default function AgendaPage() {
     return true;
   }
 
-  // Aviso é independente da criação de ciclos: vale também para ciclos históricos.
-  function ultimoBanhoConcluidoDoPacote(ag: Agendamento) {
-    if (estaCancelado(ag) || !ehPlano(ag) || !estaConcluido(ag)) return false;
-    const total = ag.plano === "Quinzenal" ? 2 : ag.plano === "Mensal" ? 4 : 0;
-    return total > 0 && Number(ag.numero_banho) === total;
+  // Botão de aviso em todo primeiro banho de pacote Mensal/Quinzenal, inclusive ciclo 1.
+  function ehPrimeiroBanhoDeRenovacao(ag: Agendamento) {
+    return !estaCancelado(ag) && ehPlano(ag) &&
+      Number(ag.numero_banho) === 1;
   }
 
   function avisarRenovacaoWhatsApp(grupo: GrupoTutor) {
-    const candidatos = grupo.agendamentos.filter(ultimoBanhoConcluidoDoPacote);
+    const candidatos = grupo.agendamentos.filter(ehPrimeiroBanhoDeRenovacao);
     const unicos = candidatos.filter((a, i) => candidatos.findIndex(b => b.pet_id === a.pet_id) === i);
     if (!unicos.length) return;
-    const telefone = normalizarTelefone(grupo.whatsapp);
-    if (!telefone) { alert("Este tutor não possui WhatsApp cadastrado."); return; }
-    const hoje = obterDataLocal();
-    const linhas = unicos.flatMap(ag => {
-      const intervalo = ag.plano === "Quinzenal" ? 14 : 7;
-      const quantidade = ag.plano === "Quinzenal" ? 2 : 4;
-      let inicio = adicionarDias(ag.data, intervalo);
-      while (inicio <= hoje) inicio = adicionarDias(inicio, intervalo);
-      const datas = Array.from({length: quantidade}, (_, i) =>
-        `${i + 1}º banho: ${formatarDataLocal(adicionarDias(inicio, i * intervalo))} às ${formatarHorario(ag.horario)}`);
-      return [`🐾 ${ag.petNome || "Pet"} — plano ${ag.plano}`, ...datas, ""];
+    if (!grupo.whatsapp) { alert("Este tutor não possui WhatsApp cadastrado."); return; }
+
+    const artigos = unicos.map(ag => {
+      const sexo = pets.find(p => p.id === ag.pet_id)?.sexo || null;
+      const normalizado = (sexo || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+      const artigo = ["femea", "f", "feminino"].includes(normalizado) ? "da" :
+        ["macho", "m", "masculino"].includes(normalizado) ? "do" : "para";
+      return `${artigo} ${ag.petNome || "pet"}`;
+    });
+    const nomes = artigos.length === 1 ? artigos[0] :
+      `${artigos.slice(0, -1).join(", ")} e ${artigos[artigos.length - 1]}`;
+
+    const valores = unicos.map(ag => {
+      const valor = valorSugerido(ag);
+      return valor === null || valor === undefined || !Number.isFinite(Number(valor)) || Number(valor) <= 0
+        ? null : Number(valor);
+    });
+    const todosComValor = valores.every(v => v !== null);
+    const total = valores.reduce<number>((soma, valor) => soma + (valor ?? 0), 0);
+    const linhas = unicos.flatMap((ag, indice) => {
+      const datasCiclo = agendamentos.filter(a =>
+        a.pet_id === ag.pet_id && a.ciclo === ag.ciclo &&
+        !estaCancelado(a) && Number(a.numero_banho) > 0
+      ).sort((a, b) => Number(a.numero_banho) - Number(b.numero_banho));
+      const datas = datasCiclo.map(a =>
+        `📅 ${a.numero_banho}º banho: ${formatarDataLocal(a.data)} às ${formatarHorario(a.horario)}`);
+      return [
+        `🐾 ${ag.petNome || "Pet"} — Plano ${ag.plano}`,
+        ...datas,
+        `💰 Valor do pacote: ${valores[indice] === null ? "A confirmar" : formatarValor(valores[indice])}`,
+        ""
+      ];
     });
     const mensagem = [
-      `Olá, ${grupo.tutorNome}! 🐾`, "",
-      "O ciclo de banho e tosa do(s) pet(s) abaixo foi concluído no SPA PET AGROMINAS. 💚", "",
-      "Informamos as próximas datas previstas para o novo ciclo:", "",
+      `Olá, ${grupo.tutorNome}! 🐾💚`, "",
+      `Passando para lembrar que hoje é dia de renovação ${unicos.length === 1 ? "do pacote de banho" : "dos pacotes de banho"} ${nomes} aqui no SPA PET AGROMINAS! 🐶🛁`, "",
+      "📅 Confira abaixo as datas programadas para este ciclo de cuidados:", "",
       ...linhas,
-      "🐶💚 Agradecemos pela confiança e esperamos vocês nas próximas datas!",
-      "", "SPA PET AGROMINAS 🐾"
+      `💚 Valor total: ${todosComValor ? formatarValor(total) : "A confirmar (há pacote sem valor cadastrado)"}`,
+      "", "Agradecemos pela confiança e esperamos vocês! 💚🐾"
     ].join("\n");
-    const parametros = new URLSearchParams({phone: telefone, text: mensagem});
-    const janela = window.open(`https://web.whatsapp.com/send/?${parametros.toString()}`, NOME_JANELA_WHATSAPP);
-    if (janela) janela.focus();
-    else alert("Permita pop-ups para abrir o WhatsApp.");
+    abrirMensagemWhatsApp(grupo.whatsapp, mensagem);
   }
 
   function abrirRenovacaoGrupo(grupo: GrupoTutor) {
@@ -902,7 +919,7 @@ export default function AgendaPage() {
     if (!selecionados.every(podeRenovarCiclo)) {
       alert("Há ciclos que não estão prontos para renovação. Atualize a Agenda."); return;
     }
-    if (!dataValida(dataInicioRenovacao) || !["08:00", "13:30"].includes(horarioRenovacao)) {
+    if (!dataValida(dataInicioRenovacao) || !["08:30", "13:30"].includes(horarioRenovacao)) {
       alert("Informe uma data e um turno válidos."); return;
     }
     const planos = selecionados.map(ag => {
@@ -971,15 +988,20 @@ export default function AgendaPage() {
       await carregarDados();
       alert(`${planos.length} ${planos.length === 1 ? "ciclo renovado" : "ciclos renovados"}! ${registros.length} banhos agendados.`);
       if (tutor?.whatsapp && window.confirm("Deseja abrir o WhatsApp com as próximas datas dos banhos?")) {
+        const valoresPlanos = planos.map(item => valorSugerido(item.ag));
+        const totalConfirmado = valoresPlanos.every(v => v !== null && v !== undefined && Number(v) > 0);
+        const totalPacotes = valoresPlanos.reduce<number>((s, v) => s + (Number(v) > 0 ? Number(v) : 0), 0);
         const mensagem = [
-          `Olá, ${tutor.nome}! 🐾`, "",
-          "Os novos banhos foram agendados no SPA PET AGROMINAS! 🐶💚", "",
-          ...planos.flatMap(item => [
+          `Olá, ${tutor.nome}! 🐾💚`, "",
+          "Os novos banhos foram agendados no SPA PET AGROMINAS! 🐶🛁", "",
+          ...planos.flatMap((item, indice) => [
             `🐾 ${item.ag.petNome} — Plano ${item.ag.plano}`,
             ...item.datas.map((data, i) => `📅 ${i + 1}º banho: ${formatarDataLocal(data)} às ${horarioRenovacao}`),
+            `💰 Valor do pacote: ${Number(valoresPlanos[indice]) > 0 ? formatarValor(valoresPlanos[indice]) : "A confirmar"}`,
             ""
           ]),
-          "Esperamos vocês! 💚", "SPA PET AGROMINAS"
+          `💚 Valor total: ${totalConfirmado ? formatarValor(totalPacotes) : "A confirmar (há pacote sem valor cadastrado)"}`,
+          "", "Agradecemos pela confiança e esperamos vocês! 💚🐾"
         ].join("\n");
         abrirMensagemWhatsApp(tutor.whatsapp, mensagem);
       }
@@ -998,7 +1020,7 @@ export default function AgendaPage() {
     setFrequenciaAgendamento("Avulso");
     setServicoSelecionado("");
     setDataAgendamento(data || dataSelecionada);
-    setHorarioAgendamento("08:00");
+    setHorarioAgendamento("08:30");
     setObservacoes("");
     setValorAgendamento("");
     setModoReagendamento("unico");
@@ -1661,7 +1683,7 @@ export default function AgendaPage() {
     type LinhaAgenda = { ag: Agendamento; altura: number; textos: string[][] };
     type TurnoAgenda = { titulo: string; horario: string; linhas: LinhaAgenda[] };
     const turnos: TurnoAgenda[] = [
-      { titulo: "MANHÃ", horario: "08:00", linhas: [] },
+      { titulo: "MANHÃ", horario: "08:30", linhas: [] },
       { titulo: "TARDE", horario: "13:30", linhas: [] },
     ];
 
@@ -1946,7 +1968,7 @@ export default function AgendaPage() {
               const ativos = grupo.agendamentos.filter(a => !estaCancelado(a));
               const todosProntos = ativos.length > 0 && ativos.every(estaConcluido);
               const renovaveis = ativos.filter(a => podeRenovarCiclo(a));
-              const avisaveis = ativos.filter(ultimoBanhoConcluidoDoPacote);
+              const avisaveis = ativos.filter(ehPrimeiroBanhoDeRenovacao);
               return <>
                 {todosProntos && <button type="button"
                   disabled={!grupo.whatsapp}
@@ -1959,7 +1981,7 @@ export default function AgendaPage() {
                   disabled={!grupo.whatsapp}
                   onClick={() => avisarRenovacaoWhatsApp(grupo)}
                   className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-900 hover:bg-sky-100 disabled:opacity-40">
-                  📲 Avisar renovação
+                  📲 Enviar renovação
                 </button>}
                 {renovaveis.length > 0 && <button type="button"
                   disabled={salvandoRenovacao}
@@ -2134,7 +2156,7 @@ export default function AgendaPage() {
                 </div>
                 <div className="rounded-[22px] border border-emerald-100 bg-emerald-50 p-5">
                   <p className="text-xs font-extrabold uppercase tracking-widest text-emerald-700">Horários de entrada</p>
-                  <div className="mt-4 flex items-center justify-between border-b border-emerald-200/70 pb-3"><span className="text-sm font-medium text-emerald-950">☀️ Manhã</span><strong className="text-emerald-950">08:00</strong></div>
+                  <div className="mt-4 flex items-center justify-between border-b border-emerald-200/70 pb-3"><span className="text-sm font-medium text-emerald-950">☀️ Manhã</span><strong className="text-emerald-950">08:30</strong></div>
                   <div className="flex items-center justify-between pt-3"><span className="text-sm font-medium text-emerald-950">🌤️ Tarde</span><strong className="text-emerald-950">13:30</strong></div>
                 </div>
               </aside>
@@ -2173,7 +2195,7 @@ export default function AgendaPage() {
                 ) : (
                   <div className="space-y-8 px-4 py-6 md:px-7 md:py-7">
                     {([
-                      { nome: "Manhã", horario: "08:00", icone: "☀️", lista: agendamentosManha, grupos: gruposManha },
+                      { nome: "Manhã", horario: "08:30", icone: "☀️", lista: agendamentosManha, grupos: gruposManha },
                       { nome: "Tarde", horario: "13:30", icone: "🌤️", lista: agendamentosTarde, grupos: gruposTarde },
                     ] as const).map((turno) => (
                       <section key={turno.nome}>
@@ -2227,7 +2249,7 @@ export default function AgendaPage() {
                 <label className="mb-2 block text-sm font-semibold text-gray-700">Turno</label>
                 <select value={horarioRenovacao} onChange={e => setHorarioRenovacao(e.target.value)}
                   className="w-full rounded-xl border border-gray-300 px-3 py-2">
-                  <option value="08:00">Manhã — 08:00</option>
+                  <option value="08:30">Manhã — 08:30</option>
                   <option value="13:30">Tarde — 13:30</option>
                 </select>
               </div>
@@ -2528,7 +2550,7 @@ export default function AgendaPage() {
                   disabled={Boolean(agendamentoSelecionado && estaConcluido(agendamentoSelecionado))}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 >
-                  <option value="08:00">08:00</option>
+                  <option value="08:30">08:30</option>
                   <option value="13:30">13:30</option>
                 </select>
               </div>
