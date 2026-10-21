@@ -596,6 +596,17 @@ export default function AgendaPage() {
     void carregarDados();
   }, []);
 
+  // Recarrega ao voltar de outra aba, para refletir pagamentos feitos no sistema.
+  useEffect(() => {
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible" && !registroAtendimentoEmAndamento.current) {
+        void carregarDados();
+      }
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => document.removeEventListener("visibilitychange", aoVoltar);
+  }, []);
+
   async function carregarDados() {
     setCarregando(true);
 
@@ -1825,6 +1836,7 @@ export default function AgendaPage() {
     const concluido = estaConcluido(agendamento);
     const cancelado = estaCancelado(agendamento);
     const pagamento = ehAdmin ? obterPagamentoDoCiclo(agendamento) : null;
+    const rotuloPagamento = !pagamento ? null : pagamento.texto === "PAGO" ? "Pago" : pagamento.texto === "A CONFERIR" ? "A conferir" : "Em aberto";
 
     const pet = pets.find(
       (item) => item.id === agendamento.pet_id
@@ -1835,9 +1847,9 @@ export default function AgendaPage() {
     return (
       <div
         key={agendamento.id}
-        className={`rounded-2xl border border-l-4 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${cancelado ? "border-rose-200 border-l-rose-400 bg-rose-50/70 opacity-80" : concluido ? "border-emerald-200 border-l-emerald-500 bg-emerald-50/50" : "border-slate-200 border-l-amber-400 bg-white"}`}
+        className={`rounded-2xl border border-l-4 p-5 shadow-sm transition-all hover:shadow-md md:p-6 ${cancelado ? "border-rose-200 border-l-rose-400 bg-rose-50/70 opacity-80" : concluido ? "border-emerald-200 border-l-emerald-500 bg-emerald-50/50" : "border-slate-200 border-l-amber-400 bg-white"}`}
       >
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-col gap-5">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-lg text-emerald-700 shadow-sm ring-1 ring-emerald-100">
               🐾
@@ -1861,8 +1873,13 @@ export default function AgendaPage() {
                         : "rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800"
                   }
                 >
-                  {cancelado ? "Cancelado" : concluido ? "Concluído" : "Pendente"}
+                  {cancelado ? "Cancelado" : concluido ? "Compareceu" : "Ainda não veio"}
                 </span>
+                {rotuloPagamento && (
+                  <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-extrabold ${pagamento?.texto === "PAGO" ? "border-emerald-200 bg-emerald-100 text-emerald-800" : pagamento?.texto === "A CONFERIR" ? "border-yellow-300 bg-yellow-50 text-yellow-900" : "border-orange-200 bg-orange-100 text-orange-800"}`}>
+                    {pagamento?.texto === "PAGO" ? "✓ " : pagamento?.texto === "A CONFERIR" ? "⚠ " : "○ "}{rotuloPagamento}
+                  </span>
+                )}
               </div>
 
               {identificacao && (
@@ -1871,15 +1888,16 @@ export default function AgendaPage() {
                 </p>
               )}
 
-              <p className="mt-1 text-sm text-gray-600">
-                {obterNomeServico(agendamento)}
-                {ehAdmin && <> • {formatarValor(agendamento.valor_total)}</>}
-              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-700">🛁 {obterNomeServico(agendamento)}</p>
+              {ehAdmin && <p className="mt-1 text-sm text-slate-600">{ehPlano(agendamento) ? "Valor do ciclo" : "Valor do atendimento"}: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(pagamento.valor)}</strong></p>}
+              {agendamento.observacoes?.trim() && (
+                <p className="mt-2 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700">📝 {agendamento.observacoes.trim()}</p>
+              )}
 
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 border-t border-slate-200/80 pt-4">
             {ehAdmin && pagamento && <button
               type="button"
               disabled={cancelado}
@@ -2061,6 +2079,15 @@ export default function AgendaPage() {
   const totalDia = agendamentosAtivosDoDia.length;
   const concluidosDia = agendamentosAtivosDoDia.filter(estaConcluido).length;
   const pendentesDia = totalDia - concluidosDia;
+  const pagosDia = ehAdmin ? agendamentosAtivosDoDia.filter(
+    (item) => obterPagamentoDoCiclo(item).texto === "PAGO"
+  ).length : 0;
+  const abertosDia = ehAdmin ? agendamentosAtivosDoDia.filter(
+    (item) => obterPagamentoDoCiclo(item).texto === "NÃO PAGO"
+  ).length : 0;
+  const conferirDia = ehAdmin ? agendamentosAtivosDoDia.filter(
+    (item) => obterPagamentoDoCiclo(item).texto === "A CONFERIR"
+  ).length : 0;
   const planosDia = agendamentosAtivosDoDia.filter(
     (item) => item.plano === "Mensal" || item.plano === "Quinzenal"
   ).length;
@@ -2100,12 +2127,17 @@ export default function AgendaPage() {
               </div>
             </header>
 
-            <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
               {[
                 { titulo: "Pets do dia", valor: totalDia, detalhe: "agendamentos ativos", icone: "🐾", cor: "bg-emerald-50 text-emerald-800" },
-                { titulo: "Aguardando", valor: pendentesDia, detalhe: "a concluir", icone: "⏳", cor: "bg-amber-50 text-amber-800" },
-                { titulo: "Concluídos", valor: concluidosDia, detalhe: "atendimentos finalizados", icone: "✓", cor: "bg-teal-50 text-teal-800" },
+                { titulo: "Ainda não vieram", valor: pendentesDia, detalhe: "aguardando atendimento", icone: "⏳", cor: "bg-amber-50 text-amber-800" },
+                { titulo: "Compareceram", valor: concluidosDia, detalhe: "atendimentos registrados", icone: "✓", cor: "bg-teal-50 text-teal-800" },
                 { titulo: "Em planos", valor: planosDia, detalhe: "quinzenais e mensais", icone: "✦", cor: "bg-violet-50 text-violet-800" },
+                ...(ehAdmin ? [
+                  { titulo: "Pagos", valor: pagosDia, detalhe: "pagamentos confirmados", icone: "✓", cor: "bg-emerald-50 text-emerald-800" },
+                  { titulo: "Em aberto", valor: abertosDia, detalhe: "pagamentos não registrados", icone: "R$", cor: "bg-orange-50 text-orange-800" },
+                  ...(conferirDia ? [{ titulo: "A conferir", valor: conferirDia, detalhe: "registros antigos sem confirmação", icone: "!", cor: "bg-yellow-50 text-yellow-800" }] : []),
+                ] : []),
               ].map((indicador) => (
                 <div key={indicador.titulo} className="rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm md:p-5">
                   <div className="flex items-start justify-between gap-2">
