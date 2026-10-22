@@ -1425,6 +1425,73 @@ export default function AgendaPage() {
     await carregarDados();
   }
 
+  // Corrige uma confirmação acidental sem modificar cobranças ou outros banhos.
+  async function desfazerComparecimento(ag: Agendamento) {
+    if (!ehAdmin || salvando || !estaConcluido(ag)) return;
+    if (!window.confirm(
+      `Desfazer o comparecimento de ${ag.petNome || "este pet"} em ${formatarDataLocal(ag.data)}?\n\n` +
+      "O banho voltará a ficar agendado. Esta ação só é permitida sem pagamento registrado."
+    )) return;
+
+    setSalvando(true);
+    try {
+      const { data: atual, error: erroAtual } = await supabase
+        .from("agendamentos")
+        .select("id, status, pagamento_status, forma_pagamento_plano, pet_id, ciclo")
+        .eq("id", ag.id).single();
+      if (erroAtual || !atual) throw erroAtual || new Error("Agendamento não encontrado.");
+      if (!["concluido", "finalizado"].includes(statusNormalizado(atual.status))) {
+        throw new Error("O banho já não está confirmado. Atualize a Agenda.");
+      }
+      if (statusNormalizado(atual.pagamento_status) === "pago" || atual.forma_pagamento_plano) {
+        throw new Error("Existe informação de pagamento neste agendamento. Não é possível desfazer.");
+      }
+      if (atual.ciclo !== null) {
+        const { data: planos, error: erroPlanos } = await supabase
+          .from("pagamentos_planos").select("id")
+          .eq("pet_id", atual.pet_id).eq("ciclo", atual.ciclo).limit(1);
+        if (erroPlanos) throw erroPlanos;
+        if (planos?.length) throw new Error("O ciclo possui pagamento registrado. Não é possível desfazer.");
+      }
+      const { data: registros, error: erroRegistros } = await supabase
+        .from("atendimentos").select("id, forma_pagamento")
+        .eq("agendamento_id", ag.id);
+      if (erroRegistros) throw erroRegistros;
+      if ((registros || []).some(r => Boolean(r.forma_pagamento))) {
+        throw new Error("O atendimento possui pagamento registrado. Não é possível desfazer.");
+      }
+      if ((registros || []).length > 1) {
+        throw new Error("Há mais de um registro de atendimento. Solicite uma revisão antes de desfazer.");
+      }
+      const { data: alterados, error: erroStatus } = await supabase
+        .from("agendamentos").update({ status: "Agendado" })
+        .eq("id", ag.id).eq("status", atual.status).select("id");
+      if (erroStatus) throw erroStatus;
+      if (alterados?.length !== 1) throw new Error("O agendamento mudou. Atualize a Agenda e tente novamente.");
+      if (registros?.length) {
+        const { data: removidos, error: erroRemocao } = await supabase
+          .from("atendimentos").delete()
+          .eq("id", registros[0].id).is("forma_pagamento", null).select("id");
+        if (erroRemocao || removidos?.length !== 1) {
+          // Se o registro não puder ser removido, tenta restaurar o status original.
+          await supabase.from("agendamentos").update({ status: atual.status })
+            .eq("id", ag.id).eq("status", "Agendado");
+          throw erroRemocao || new Error("O atendimento não pôde ser removido. Confira a Agenda.");
+        }
+      }
+      setModalAgendamento(false);
+      setAgendamentoSelecionado(null);
+      await carregarDados();
+      alert("Comparecimento desfeito. O banho voltou para Agendado.");
+    } catch (erro: any) {
+      console.error("Erro ao desfazer comparecimento:", erro);
+      alert(erro?.message || "Não foi possível desfazer o comparecimento.");
+      await carregarDados();
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   // Um clique registra a conclusão, sem solicitar valor ou forma de pagamento.
   async function salvarAtendimento(ag: Agendamento) {
     if (!perfilUsuario) return;
@@ -2120,10 +2187,17 @@ export default function AgendaPage() {
                   <h1 className="text-3xl font-black tracking-tight md:text-4xl">Agenda de atendimentos</h1>
                   <p className="mt-2 max-w-2xl text-sm text-emerald-100 md:text-base">Organize os pets, acompanhe os banhos e gerencie os planos em um só lugar.</p>
                 </div>
-                <button type="button" onClick={() => abrirNovoAgendamento()}
-                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-extrabold text-emerald-900 shadow-md transition hover:-translate-y-0.5 hover:bg-emerald-50 hover:shadow-lg">
-                  <span className="text-xl leading-none">+</span> Novo agendamento
-                </button>
+                <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
+                  <button type="button" onClick={() => void compartilharAgendaImagem()}
+                    disabled={carregando || totalDia === 0}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/40 bg-white/15 px-5 py-3.5 text-sm font-extrabold text-white transition hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-40">
+                    📲 Compartilhar agenda
+                  </button>
+                  <button type="button" onClick={() => abrirNovoAgendamento()}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-extrabold text-emerald-900 shadow-md transition hover:-translate-y-0.5 hover:bg-emerald-50 hover:shadow-lg">
+                    <span className="text-xl leading-none">+</span> Novo agendamento
+                  </button>
+                </div>
               </div>
             </header>
 
@@ -2602,6 +2676,22 @@ export default function AgendaPage() {
                 />
               </div>
             </div>
+
+            {ehAdmin && agendamentoSelecionado && estaConcluido(agendamentoSelecionado) && (
+              <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="mb-3 text-sm text-amber-900">
+                  Confirmou o comparecimento por engano? Você pode desfazer se não houver pagamento registrado. Os dados do agendamento ficam protegidos.
+                </p>
+                <button
+                  type="button"
+                  disabled={salvando}
+                  onClick={() => void desfazerComparecimento(agendamentoSelecionado)}
+                  className="rounded-xl border border-amber-500 px-4 py-2 font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  Desfazer comparecimento
+                </button>
+              </div>
+            )}
 
             <div className="mt-6 flex justify-end gap-3">
               <button
