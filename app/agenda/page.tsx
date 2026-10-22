@@ -2179,7 +2179,7 @@ export default function AgendaPage() {
             <header className="relative mb-6 overflow-hidden rounded-[28px] bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-800 p-6 text-white shadow-lg shadow-emerald-950/10 md:p-8">
               <div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full border-[45px] border-white/5" />
               <div className="pointer-events-none absolute -bottom-24 right-40 h-52 w-52 rounded-full bg-emerald-400/10 blur-2xl" />
-              <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div className="relative flex flex-col gap-6">
                 <div>
                   <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold tracking-[0.12em] text-emerald-50">
                     🐾 SPA PET AGROMINAS <span className="text-emerald-300">/</span> BANHO E TOSA
@@ -2187,7 +2187,7 @@ export default function AgendaPage() {
                   <h1 className="text-3xl font-black tracking-tight md:text-4xl">Agenda de atendimentos</h1>
                   <p className="mt-2 max-w-2xl text-sm text-emerald-100 md:text-base">Organize os pets, acompanhe os banhos e gerencie os planos em um só lugar.</p>
                 </div>
-                <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                   <button type="button" onClick={() => void compartilharAgendaImagem()}
                     disabled={carregando || totalDia === 0}
                     className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/40 bg-white/15 px-5 py-3.5 text-sm font-extrabold text-white transition hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-40">
@@ -2718,3 +2718,6 @@ export default function AgendaPage() {
     </main>
   );
 }
+
+
+
