@@ -449,10 +449,11 @@ function criarResumoPlano(
   pet: Pet,
   agendamentos: AgendamentoBanco[]
 ): PlanoResumo | null {
+  // O histórico avulso não integra o novo plano mensal/quinzenal.
   const doPet = agendamentos.filter(
     (item) =>
-      String(item.pet_id) ===
-      String(pet.id)
+      String(item.pet_id) === String(pet.id) &&
+      String(item.plano || "Avulso") === pet.servicos.frequencia
   );
 
   if (!doPet.length) {
@@ -1339,7 +1340,11 @@ export default function ClientesPetsPage() {
         .single();
 
       if (erroConsultaPet) throw erroConsultaPet;
-      if (cadastroAtual?.frequencia !== "Avulso") continue;
+
+      // Também recupera a conversão que já salvou Mensal/Quinzenal
+      // sem criar os agendamentos (caso de cadastros afetados).
+      const eraAvulso = cadastroAtual?.frequencia === "Avulso";
+      if (!eraAvulso && cadastroAtual?.frequencia !== pet.servicos.frequencia) continue;
 
       const inicio = pet.servicos.dataInicio;
       if (!inicio || inicio <= hojeISO()) {
@@ -1353,11 +1358,18 @@ export default function ClientesPetsPage() {
 
       const { data: anteriores, error: erroAgenda } = await supabase
         .from("agendamentos")
-        .select("ciclo,data,horario,status")
+        .select("ciclo,data,horario,status,plano")
         .eq("pet_id", pet.id);
 
       if (erroAgenda) throw erroAgenda;
       const existentes = anteriores || [];
+      const jaTemPlano = existentes.some((item) =>
+        String(item.plano) === pet.servicos.frequencia
+      );
+      if (jaTemPlano) continue;
+      // Para recuperar cadastros já convertidos, exige histórico avulso.
+      if (!eraAvulso && !existentes.some((item) => String(item.plano) === "Avulso")) continue;
+
       const conflito = existentes.some((item) =>
         datas.includes(String(item.data)) &&
         String(item.horario || "").slice(0, 5) === horario &&
