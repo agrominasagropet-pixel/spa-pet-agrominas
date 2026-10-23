@@ -1306,16 +1306,17 @@ export default function ClientesPetsPage() {
         })
       );
 
-    const { error } =
+    const { data, error } =
       await supabase
         .from("agendamentos")
-        .insert(
-          agendamentos
-        );
+        .insert(agendamentos)
+        .select("id");
 
     if (error) {
       throw error;
     }
+
+    return (data || []).map((item) => String(item.id));
   }
 
   async function atualizarClienteExistente() {
@@ -1323,6 +1324,61 @@ export default function ClientesPetsPage() {
       throw new Error(
         "Cliente não identificado."
       );
+    }
+
+    // Identifica somente a passagem de Avulso para um plano, antes de salvar.
+    const mudancasDePlano = new Map<string, { ciclo: number; pet: Pet }>();
+
+    for (const pet of pets) {
+      if (pet.id.startsWith("novo-") || pet.servicos.frequencia === "Avulso") continue;
+
+      const { data: cadastroAtual, error: erroConsultaPet } = await supabase
+        .from("pets")
+        .select("frequencia")
+        .eq("id", pet.id)
+        .single();
+
+      if (erroConsultaPet) throw erroConsultaPet;
+      if (cadastroAtual?.frequencia !== "Avulso") continue;
+
+      const inicio = pet.servicos.dataInicio;
+      if (!inicio || inicio <= hojeISO()) {
+        throw new Error(`Para iniciar o plano de ${pet.nome}, escolha uma data futura para o primeiro atendimento.`);
+      }
+
+      const quantidade = quantidadeBanhosPorCiclo(pet.servicos.frequencia);
+      const intervalo = intervaloEntreBanhos(pet.servicos.frequencia);
+      const datas = Array.from({ length: quantidade }, (_, i) => adicionarDias(inicio, i * intervalo));
+      const horario = horarioDoTurno(pet.servicos.turno);
+
+      const { data: anteriores, error: erroAgenda } = await supabase
+        .from("agendamentos")
+        .select("ciclo,data,horario,status")
+        .eq("pet_id", pet.id);
+
+      if (erroAgenda) throw erroAgenda;
+      const existentes = anteriores || [];
+      const conflito = existentes.some((item) =>
+        datas.includes(String(item.data)) &&
+        String(item.horario || "").slice(0, 5) === horario &&
+        !String(item.status || "").toLowerCase().includes("cancel")
+      );
+      if (conflito) {
+        throw new Error(`Já existe um atendimento de ${pet.nome} em uma das datas do novo plano. Confira a agenda antes de salvar.`);
+      }
+
+      const maiorCiclo = existentes.reduce((maior, item) => Math.max(maior, Number(item.ciclo || 1)), 0);
+      mudancasDePlano.set(pet.id, { ciclo: maiorCiclo + 1, pet });
+
+      const confirmou = window.confirm(
+        `Criar novo plano para ${pet.nome}?\n\n` +
+        `Plano: ${pet.servicos.frequencia} (${quantidade} banhos)\n` +
+        `Primeiro atendimento: ${formatarData(inicio)} às ${horario}\n` +
+        `Datas: ${datas.map(formatarData).join(", ")}\n` +
+        `Valor do ciclo: ${formatarMoeda(valorNumerico(pet.servicos.valorTotal))}\n\n` +
+        `O banho avulso anterior e seu pagamento serão preservados.`
+      );
+      if (!confirmou) return false;
     }
 
     const {
@@ -1463,6 +1519,16 @@ export default function ClientesPetsPage() {
           pet
         );
       } else {
+        const novoPlano = mudancasDePlano.get(pet.id);
+        let idsCriados: string[] = [];
+
+        if (novoPlano) {
+          // Cria um ciclo separado; não altera o atendimento avulso anterior.
+          idsCriados = await criarAgendamentosDoPet(
+            pet.id, novoPlano.pet, novoPlano.ciclo, novoPlano.pet.servicos.dataInicio
+          );
+        }
+
         const { error } =
           await supabase
             .from("pets")
@@ -1475,10 +1541,18 @@ export default function ClientesPetsPage() {
             );
 
         if (error) {
+          if (idsCriados.length) {
+            const { error: erroLimpeza } = await supabase
+              .from("agendamentos")
+              .delete()
+              .in("id", idsCriados);
+            if (erroLimpeza) console.error("Falha ao desfazer novo ciclo:", erroLimpeza);
+          }
           throw error;
         }
       }
     }
+    return true;
   }
 
   async function salvarCliente() {
@@ -1592,7 +1666,8 @@ export default function ClientesPetsPage() {
       }
 
       if (modoEdicao) {
-        await atualizarClienteExistente();
+        const atualizado = await atualizarClienteExistente();
+        if (!atualizado) return;
 
         const dadosAtualizados =
           await carregarClientes();
@@ -3269,13 +3344,12 @@ export default function ClientesPetsPage() {
                             <strong>
                               Atenção:
                             </strong>{" "}
-                            alterar o plano aqui não
-                            altera os ciclos já existentes
-                            na agenda. Para criar um novo
-                            ciclo, use{" "}
-                            <strong>
-                              Renovar plano
-                            </strong>.
+                            ao mudar de Avulso para Quinzenal ou Mensal,
+                            confirme a data futura do primeiro atendimento.
+                            Ao salvar, um novo ciclo será criado na agenda,
+                            sem alterar o banho avulso anterior.
+                            Para renovar um plano existente, use{" "}
+                            <strong>Renovar plano</strong>.
                           </div>
                         )}
                       </div>
