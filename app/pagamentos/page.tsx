@@ -86,6 +86,9 @@ type PagamentoPlano = {
 
 };
 
+type Extra = { id: string; agendamento_id: string; pet_id: string; nome_servico: string; valor: number; pagamento_status: string; forma_pagamento: string | null; data_pagamento: string | null; };
+type ExtraExibicao = Extra & { banho: string; dataBanho: string; cicloExtra: number | null };
+
 type Situacao = "pendente" | "pago" | "conferir";
 
 type Aba = "pendente" | "pago" | "conferir";
@@ -96,7 +99,8 @@ type Linha = {
 
   chave: string;
 
-  tipo: "plano" | "avulso";
+  tipo: "plano" | "avulso" | "extras";
+  extras?: ExtraExibicao[];
 
   situacao: Situacao;
 
@@ -325,6 +329,9 @@ export default function PagamentosPage() {
   const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
 
   const [pagamentos, setPagamentos] = useState<PagamentoPlano[]>([]);
+  const [extras, setExtras] = useState<Extra[]>([]);
+  const [extrasSelecionados, setExtrasSelecionados] = useState<string[]>([]);
+  const [incluirPrincipal, setIncluirPrincipal] = useState(true);
 
   const [carregando, setCarregando] = useState(true);
 
@@ -359,6 +366,7 @@ export default function PagamentosPage() {
   const [erroModal, setErroModal] = useState("");
 
   const [regularizando, setRegularizando] = useState(false);
+
   const [cancelando, setCancelando] = useState(false);
 
   const carregar = useCallback(async () => {
@@ -369,7 +377,7 @@ export default function PagamentosPage() {
 
     try {
 
-      const [c, p, a, t, pg] = await Promise.all([
+      const [c, p, a, t, pg, ex] = await Promise.all([
 
         buscarTodos<Cliente>(
 
@@ -417,10 +425,9 @@ export default function PagamentosPage() {
 
           "id,pet_id,ciclo,valor,forma_pagamento,data_pagamento",
 
-          "data_pagamento"
-
+                    "data_pagamento"
         ),
-
+        buscarTodos<Extra>("servicos_extras_agendamento", "id,agendamento_id,pet_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento", "criado_em"),
       ]);
 
       setClientes(c);
@@ -432,6 +439,7 @@ export default function PagamentosPage() {
       setAtendimentos(t);
 
       setPagamentos(pg);
+      setExtras(ex);
 
     } catch (e: unknown) {
 
@@ -691,7 +699,7 @@ export default function PagamentosPage() {
 
         }
 
-      } else if (ativo) {
+       } else if (ativo && !grupo.some((a) => cancelado(a.pagamento_status))) {
 
         resultado.push({
 
@@ -832,7 +840,9 @@ export default function PagamentosPage() {
         data: at.data,
 
         dataPagamento: at.forma_pagamento
+
           ? (at.data_pagamento || at.data).slice(0, 10)
+
           : "",
 
         forma: at.forma_pagamento || "",
@@ -840,15 +850,46 @@ export default function PagamentosPage() {
         atendimentoId: at.id,
 
         observacao: at.forma_pagamento && !at.data_pagamento
+
           ? "Pagamento antigo sem data de recebimento registrada; exibimos a data do atendimento como referência."
+
           : undefined,
 
       });
 
     }
 
+        // Serviços extras são vinculados ao banho, sem alterar o valor do plano.
+    const extrasExibidos: ExtraExibicao[] = extras.filter(e => normal(e.pagamento_status) !== "cancelado").map(e => {
+      const ag = agMap.get(e.agendamento_id);
+      return { ...e, banho: ag?.numero_banho ? `${ag.numero_banho}º banho` : "Banho não identificado", dataBanho: ag?.data || "", cicloExtra: ag?.ciclo ?? null };
+    });
+    const pendentesExtras = extrasExibidos.filter(e => normal(e.pagamento_status) === "pendente");
+    const pagosExtras = extrasExibidos.filter(e => normal(e.pagamento_status) === "pago");
+    const associados = new Set<string>();
+    // Exibe extras pendentes na mesma cobrança do plano/atendimento pendente.
+    for (const linha of resultado) {
+      if (linha.situacao !== "pendente") continue;
+      const relacionados = pendentesExtras.filter(e => e.pet_id === linha.petId && (linha.tipo === "plano" ? e.cicloExtra === linha.ciclo : linha.atendimentoId ? atendimentos.some(at => at.id === linha.atendimentoId && at.agendamento_id === e.agendamento_id) : false));
+      if (relacionados.length) { linha.extras = relacionados; relacionados.forEach(e => associados.add(e.id)); }
+    }
+    // Quando o plano já foi pago, ou não há cobrança principal, mantém os extras
+    // no mesmo painel de Pagamentos como cobrança vinculada ao pet/ciclo.
+    const gruposExtras = new Map<string, ExtraExibicao[]>();
+    for (const e of pendentesExtras.filter(e => !associados.has(e.id))) {
+      const chave = `${e.pet_id}::${e.cicloExtra ?? e.agendamento_id}`;
+      gruposExtras.set(chave, [...(gruposExtras.get(chave) || []), e]);
+    }
+    for (const [chave, grupo] of gruposExtras) {
+      const primeiro = grupo[0];
+      const info = identificar(primeiro.pet_id);
+      resultado.push({ chave: `extras-${chave}`, tipo: "extras", situacao: "pendente", petId: primeiro.pet_id, ...info, titulo: primeiro.cicloExtra === null ? "Adicionais do atendimento" : `Serviços extras · Ciclo ${primeiro.cicloExtra}`, ciclo: primeiro.cicloExtra, valor: 0, data: primeiro.dataBanho, dataPagamento: "", forma: "", extras: grupo });
+    }
+    // Pagamentos de extras mantêm histórico próprio e data real de recebimento.
+    for (const e of pagosExtras) {
+      resultado.push({ chave: `extra-pago-${e.id}`, tipo: "extras", situacao: "pago", petId: e.pet_id, ...identificar(e.pet_id), titulo: `+ ${e.nome_servico} · ${e.banho}${e.cicloExtra === null ? "" : ` · Ciclo ${e.cicloExtra}`}`, ciclo: e.cicloExtra, valor: Number(e.valor), data: e.dataBanho, dataPagamento: (e.data_pagamento || "").slice(0,10), forma: e.forma_pagamento || "Não informada" });
+    }
     return resultado;
-
   }, [
 
     clientes,
@@ -859,8 +900,8 @@ export default function PagamentosPage() {
 
     atendimentos,
 
-    pagamentos,
-
+        pagamentos,
+    extras,
   ]);
 
   const filtradas = useMemo(() => {
@@ -885,7 +926,7 @@ export default function PagamentosPage() {
 
       return normal(
 
-        `${linha.tutor} ${linha.pet} ${linha.titulo} ${linha.forma}`
+        `${linha.tutor} ${linha.pet} ${linha.titulo} ${linha.forma} ${(linha.extras || []).map(e => e.nome_servico).join(" ")}`
 
       ).includes(termo);
 
@@ -937,9 +978,8 @@ export default function PagamentosPage() {
 
   );
 
-  const totalPendente = pendentes.reduce(
-
-    (total, l) => total + (l.valor || 0),
+    const totalPendente = pendentes.reduce(
+    (total, l) => total + (l.valor || 0) + (l.extras || []).reduce((t,e) => t + Number(e.valor || 0), 0),
 
     0
 
@@ -981,8 +1021,6 @@ export default function PagamentosPage() {
 
   }
 
-
-
   async function resolverConferencia(jaRecebeu: boolean) {
 
     if (!conferindo || salvandoConferencia || conferindo.ciclo === null) return;
@@ -1015,7 +1053,9 @@ export default function PagamentosPage() {
 
         setConferindo(null);
 
-        setSelecionado({ ...linha, situacao: "pendente" });
+                  setSelecionado({ ...linha, situacao: "pendente" });
+          setIncluirPrincipal(true);
+          setExtrasSelecionados([]);
 
         setRegularizando(true);
 
@@ -1063,98 +1103,186 @@ export default function PagamentosPage() {
 
   }
 
-
-
   async function cancelarCobranca(linha: Linha) {
+
     if (cancelando || linha.tipo !== "plano" ||
+
         linha.situacao !== "pendente" || linha.ciclo === null) return;
 
+
+
     const confirmou = window.confirm(
-      "Cancelar cobrança do pet " + linha.pet +
-      " - ciclo " + linha.ciclo + "?\n\n" +
+
+      "Cancelar SOMENTE a cobrança financeira?\n\n" +
+
+      "Tutor: " + linha.tutor + "\n" +
+
+      "Pet: " + linha.pet + "\n" +
+
+      "Ciclo: " + linha.ciclo + "\n" +
+
       "Valor: " + moeda(linha.valor) + "\n\n" +
-      "Os ciclos anteriores serão preservados."
+
+      "O banho concluído e os atendimentos serão preservados. " +
+
+      "Nenhum recebimento será registrado."
+
     );
+
     if (!confirmou) return;
 
+
+
     setCancelando(true);
+
     setErro("");
+
     setAviso("");
 
+
+
     try {
+
+      const { data: usuario, error: erroUsuario } = await supabase.auth.getUser();
+
+      if (erroUsuario || !usuario.user) {
+
+        throw new Error("Sessão expirada. Entre novamente como administradora.");
+
+      }
+
+
+
+      const { data: perfil, error: erroPerfil } = await supabase
+
+        .from("perfis")
+
+        .select("perfil")
+
+        .eq("id", usuario.user.id)
+
+        .maybeSingle();
+
+      if (erroPerfil || perfil?.perfil !== "admin") {
+
+        throw new Error("Somente a administradora pode cancelar cobranças.");
+
+      }
+
+
+
       const { data: ags, error: erroAg } = await supabase
+
         .from("agendamentos")
+
         .select("id,status,pagamento_status")
+
         .eq("pet_id", linha.petId)
+
         .eq("ciclo", linha.ciclo);
 
       if (erroAg) throw erroAg;
+
       if (!ags?.length) throw new Error("Ciclo não encontrado.");
 
+
+
       const { data: pagamentos, error: erroPg } = await supabase
+
         .from("pagamentos_planos")
+
         .select("id")
+
         .eq("pet_id", linha.petId)
+
         .eq("ciclo", linha.ciclo)
+
         .limit(1);
 
       if (erroPg) throw erroPg;
+
       if (pagamentos?.length) {
-        throw new Error("Este ciclo possui pagamento registrado.");
+
+        throw new Error("Este ciclo já possui pagamento registrado. Não pode ser cancelado por esta ação.");
+
       }
 
       if (ags.some(a => normal(a.pagamento_status) === "pago")) {
+
         throw new Error("Este ciclo está marcado como pago. Confira antes de cancelar.");
+
       }
 
-      if (ags.some(a =>
-        ["concluido", "finalizado", "compareceu"].includes(normal(a.status))
-      )) {
-        throw new Error("Este ciclo possui banho concluído.");
+      if (ags.every(a => cancelado(a.pagamento_status))) {
+
+        await carregar();
+
+        setAviso("Esta cobrança já estava cancelada.");
+
+        return;
+
       }
+
+
+
+      // Cancela apenas a obrigação financeira, nunca o banho nem o atendimento.
 
       const ids = ags.map(a => a.id);
 
-      const { data: atendimentos, error: erroAt } = await supabase
-        .from("atendimentos")
-        .select("id")
-        .in("agendamento_id", ids)
-        .limit(1);
-
-      if (erroAt) throw erroAt;
-      if (atendimentos?.length) {
-        throw new Error("Existe atendimento registrado neste ciclo.");
-      }
-
       const { data: atualizados, error: erroUpdate } = await supabase
+
         .from("agendamentos")
-        .update({ status: "Cancelado" })
+
+        .update({ pagamento_status: "Cancelado" })
+
         .in("id", ids)
+
         .eq("pet_id", linha.petId)
+
         .eq("ciclo", linha.ciclo)
+
         .select("id");
 
       if (erroUpdate) throw erroUpdate;
+
       if (atualizados?.length !== ids.length) {
-        throw new Error("Não foi possível confirmar todos os cancelamentos. Atualize a página.");
+
+        throw new Error("O banco não confirmou o cancelamento de todo o ciclo. Confira antes de tentar novamente.");
+
       }
 
+
+
       await carregar();
-      setAviso("Cobrança cancelada! Os ciclos anteriores foram preservados.");
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : "Erro ao cancelar cobrança.");
+
+      setAviso("Cobrança financeira cancelada. Banhos e atendimentos preservados.");
+
+    } catch (e: unknown) {
+
+      const mensagem = e instanceof Error ? e.message : "Erro ao cancelar cobrança.";
+
+      setErro(mensagem);
+
+      window.alert("Não foi possível cancelar a cobrança: " + mensagem);
+
     } finally {
+
       setCancelando(false);
+
     }
+
   }
+
+
 
   function abrirPagamento(linha: Linha) {
 
     if (linha.situacao !== "pendente") return;
 
-    setRegularizando(false);
-
+        setRegularizando(false);
     setSelecionado(linha);
+    setExtrasSelecionados((linha.extras || []).map(e => e.id));
+    setIncluirPrincipal(linha.tipo !== "extras");
 
     setValor(
 
@@ -1176,13 +1304,13 @@ export default function PagamentosPage() {
 
   }
 
-  async function registrarPagamento() {
-
+    async function registrarPagamento() {
     if (!selecionado || salvando) return;
-
     const linha = selecionado;
-
-    const numero = parseDinheiro(valor);
+    const cobrarPrincipal = linha.tipo !== "extras" && incluirPrincipal;
+    const selecionados = (linha.extras || []).filter(e => extrasSelecionados.includes(e.id));
+    if (!cobrarPrincipal && !selecionados.length) { setErroModal("Selecione pelo menos um item."); return; }
+    const numero = cobrarPrincipal ? parseDinheiro(valor) : 0;
 
     if (
 
@@ -1206,9 +1334,9 @@ export default function PagamentosPage() {
 
     }
 
+        const totalReceber = (numero || 0) + selecionados.reduce((t,e) => t + Number(e.valor), 0);
     const confirmar = window.confirm(
-
-      `Confirmar recebimento de ${moeda(numero)}?\n\n` +
+      `Confirmar recebimento de ${moeda(totalReceber)}?\n\n` +
 
         `Tutor: ${linha.tutor}\n` +
 
@@ -1230,7 +1358,7 @@ export default function PagamentosPage() {
 
     try {
 
-      if (linha.tipo === "plano") {
+            if (cobrarPrincipal && linha.tipo === "plano") {
 
         if (linha.ciclo === null) {
 
@@ -1350,8 +1478,7 @@ export default function PagamentosPage() {
 
         }
 
-      } else {
-
+            } else if (cobrarPrincipal && linha.tipo === "avulso") {
         if (!linha.atendimentoId) {
 
           throw new Error("Atendimento não identificado.");
@@ -1389,6 +1516,7 @@ export default function PagamentosPage() {
             valor: numero,
 
             forma_pagamento: forma,
+
             data_pagamento: dataPagamento,
 
           })
@@ -1411,10 +1539,18 @@ export default function PagamentosPage() {
 
         }
 
-        pagamentoGravado = true;
-
+                pagamentoGravado = true;
       }
-
+      if (selecionados.length) {
+        // Função SQL instalada: todos os extras selecionados são pagos ou nenhum.
+        // A cobrança principal usa o fluxo financeiro já existente, independente.
+        const { data: qtd, error: erroExtras } = await supabase.rpc("receber_extras_agrominas", {
+          p_ids: selecionados.map(e => e.id), p_forma: forma, p_data: dataPagamento,
+        });
+        if (erroExtras) throw new Error(erroExtras.message + (pagamentoGravado ? " O pagamento principal já foi salvo. Atualize antes de tentar novamente." : ""));
+        if (Number(qtd) !== selecionados.length) throw new Error("Quantidade de adicionais recebidos não confirmada. Atualize antes de tentar novamente.");
+        pagamentoGravado = true;
+      }
       setSelecionado(null);
 
       setAviso("Pagamento registrado com sucesso!");
@@ -1839,11 +1975,7 @@ export default function PagamentosPage() {
 
                         <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
 
-                          {linha.tipo === "plano"
-
-                            ? "Plano"
-
-                            : "Avulso"}
+                                                    {linha.tipo === "plano" ? "Plano" : linha.tipo === "avulso" ? "Avulso" : "Adicionais"}
 
                         </span>
 
@@ -1855,11 +1987,14 @@ export default function PagamentosPage() {
 
                       </p>
 
-                      <p className="mt-1 text-sm text-gray-500">
-
-                        {linha.titulo}
-
-                      </p>
+                                            <p className="mt-1 text-sm text-gray-500">{linha.titulo}</p>
+                      {!!linha.extras?.length && (
+                        <div className="mt-2 space-y-1 text-sm text-gray-600">
+                          {linha.tipo !== "extras" && <p>Valor do {linha.tipo === "plano" ? "plano" : "atendimento"}: {moeda(linha.valor)}</p>}
+                          {linha.extras.map(e => <p key={e.id}>+ {e.nome_servico}: <strong>{moeda(Number(e.valor))}</strong> <span className="text-xs text-gray-500">· {e.banho}{e.cicloExtra === null ? "" : ` do ciclo ${e.cicloExtra}`} · {e.dataBanho ? `Data: ${dataBR(e.dataBanho)}` : "Data não identificada"}</span></p>)}
+                          <p className="font-semibold text-gray-800">Total pendente: {moeda((linha.tipo === "extras" ? 0 : (linha.valor || 0)) + linha.extras.reduce((t,e) => t + Number(e.valor), 0))}</p>
+                        </div>
+                      )} 
 
                       <p className="mt-2 text-xs text-gray-400">
 
@@ -1889,32 +2024,36 @@ export default function PagamentosPage() {
 
                         <p className="text-xl font-bold text-gray-900">
 
-                          {moeda(linha.valor)}
+                                                      {linha.valor === null && !linha.extras?.length ? moeda(null) : moeda((linha.valor || 0) + (linha.extras || []).reduce((t,e) => t + Number(e.valor), 0))}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-400">
 
-                        </p>
-
-                        <p className="mt-1 text-xs text-gray-400">
-
-                          {linha.tipo === "plano"
-
-                            ? "Total do ciclo"
-
-                            : "Atendimento"}
+                                                      {linha.extras?.length ? "Total com adicionais" : linha.tipo === "plano" ? "Total do ciclo" : linha.tipo === "avulso" ? "Atendimento" : "Serviço extra"}
 
                         </p>
 
                       </div>
 
                       {linha.situacao === "pendente" && linha.tipo === "plano" && (
+
     <button
+
       type="button"
+
       disabled={cancelando}
+
       onClick={() => void cancelarCobranca(linha)}
+
       className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"
+
     >
+
       {cancelando ? "Aguarde..." : "Cancelar cobrança"}
+
     </button>
+
   )}
+
   {linha.situacao === "pendente" && (
 
                         <button
@@ -2004,7 +2143,9 @@ export default function PagamentosPage() {
             <p className="mt-4 text-xs text-gray-500">
 
               Os avulsos novos usam a data real do recebimento.
+
               Pagamentos antigos sem data separada mostram a data do atendimento como referência.
+
               O resumo mensal acima considera apenas os planos.
 
             </p>
@@ -2125,13 +2266,21 @@ export default function PagamentosPage() {
 
             </div>
 
-            <div className="mt-6 space-y-4">
-
-              <div>
-
-                <label
-
-                  htmlFor="valor-pagamento"
+                          <div className="mt-6 space-y-4">
+                {!!selecionado.extras?.length && (
+                  <div className="space-y-3 rounded-xl border border-gray-200 p-4">
+                    <p className="font-semibold text-gray-800">Selecione o que será recebido</p>
+                    {selecionado.tipo !== "extras" && (
+                      <label className="flex items-center justify-between gap-3 text-sm"><span><input type="checkbox" checked={incluirPrincipal} onChange={e => setIncluirPrincipal(e.target.checked)} className="mr-2" />{selecionado.tipo === "plano" ? "Plano" : "Atendimento"}</span><strong>{moeda(selecionado.valor)}</strong></label>
+                    )}
+                    {selecionado.extras.map(e => <label key={e.id} className="flex items-start justify-between gap-3 text-sm"><span><input type="checkbox" checked={extrasSelecionados.includes(e.id)} onChange={event => setExtrasSelecionados(atual => event.target.checked ? [...atual,e.id] : atual.filter(id => id !== e.id))} className="mr-2" />{e.nome_servico}<span className="block pl-5 text-xs text-gray-500">{e.banho}{e.cicloExtra === null ? "" : ` · Ciclo ${e.cicloExtra}`} · {dataBR(e.dataBanho)}</span></span><strong>{moeda(Number(e.valor))}</strong></label>)}
+                    <p className="border-t border-gray-100 pt-2 font-bold text-green-800">Total selecionado: {moeda((incluirPrincipal && selecionado.tipo !== "extras" ? (parseDinheiro(valor) || 0) : 0) + selecionado.extras.filter(e => extrasSelecionados.includes(e.id)).reduce((t,e) => t + Number(e.valor),0))}</p>
+                    {selecionado.tipo !== "extras" && <p className="text-xs text-amber-700">Plano/atendimento e adicionais usam registros financeiros independentes. Se uma etapa falhar, confira os pagamentos antes de repetir.</p>}
+                  </div>
+                )}
+                {selecionado.tipo !== "extras" && incluirPrincipal && <div>
+                  <label
+                    htmlFor="valor-pagamento"
 
                   className="mb-2 block text-sm font-semibold text-gray-700"
 
@@ -2159,13 +2308,10 @@ export default function PagamentosPage() {
 
                 />
 
-              </div>
-
-              <div>
-
-                <label
-
-                  htmlFor="forma-pagamento"
+                              </div>}
+                <div>
+                  <label
+                    htmlFor="forma-pagamento"
 
                   className="mb-2 block text-sm font-semibold text-gray-700"
 

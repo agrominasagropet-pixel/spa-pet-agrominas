@@ -39,6 +39,26 @@ type Atendimento = {
   forma_pagamento: string | null;
 };
 
+type ExtraAgendamento = {
+  id: string;
+  agendamento_id: string;
+  pet_id: string;
+  servico_id: string | null;
+  nome_servico: string;
+  valor: number;
+  pagamento_status: "Pendente" | "Pago" | "Cancelado";
+  forma_pagamento: string | null;
+  data_pagamento: string | null;
+};
+
+const NOMES_EXTRAS = new Set([
+  "Escovação de dentes", "Corte de unhas", "Lixamento de unhas",
+  "Harmonização facial", "Patinha raspada (botinha)",
+  "Arredondamento de patinha", "Desembolo", "Penteados",
+  "Hidratação - Pequeno e Médio porte",
+  "Hidratação - Grande e Gigante porte", "Tosa completa",
+]);
+
 type PagamentoPlano = {
   id: string;
   pet_id: string;
@@ -399,6 +419,7 @@ type ItemComprovanteGrupo = {
   tipoPlano: string | null;
   ciclo: number | null;
   petId: string;
+  extras: ExtraAgendamento[];
 };
 
 function valorComprovante(valor: number | null | undefined) {
@@ -476,13 +497,17 @@ function documentoComprovante(conteudo: string, titulo: string) {
 function imprimirComprovante(
   agendamento: Agendamento,
   servicoNome: string,
-  pagamento: DadosPagamentoComprovante
+  pagamento: DadosPagamentoComprovante,
+  extras: ExtraAgendamento[] = []
 ) {
   const plano = Boolean(agendamento.plano && agendamento.plano !== "Avulso");
   // Nos planos desta Agenda, valor_total representa o pacote inteiro,
   // repetido em cada agendamento do mesmo ciclo.
   const valor = pagamento.valor ?? agendamento.valor_total;
   const nome = escaparHTMLComprovante;
+  const extrasAtivos = extras.filter(e => e.pagamento_status !== "Cancelado");
+  const totalExtras = extrasAtivos.reduce((t, e) => t + Number(e.valor || 0), 0);
+  const totalGeral = valor == null ? null : Number(valor) + totalExtras;
   const identificacao = obterIdentificacaoBanho(agendamento);
   const dados = `
     <div class="linha"><span class="rotulo">Tutor</span><span class="valor">${nome(agendamento.tutorNome || "Tutor não informado")}</span></div>
@@ -497,6 +522,11 @@ function imprimirComprovante(
     <hr class="separador" />
     <div class="etiqueta" style="text-align:center">${plano ? "VALOR TOTAL DO CICLO" : "VALOR DO ATENDIMENTO"}</div>
     <div class="montante">${nome(valorComprovante(valor))}</div>
+    ${extrasAtivos.map(e => `<div class="linha"><span class="rotulo">Extra: ${nome(e.nome_servico)} (${nome(e.pagamento_status)})</span><span class="valor">${nome(formatarValor(Number(e.valor)))}</span></div>`).join("")}
+    ${extrasAtivos.length ? `<div class="linha"><span class="rotulo">TOTAL DOS EXTRAS</span><span class="valor"><strong>${nome(formatarValor(totalExtras))}</strong></span></div>
+    <div class="etiqueta" style="text-align:center">TOTAL GERAL (PLANO + EXTRAS)</div>
+    <div class="montante">${nome(valorComprovante(totalGeral))}</div>
+    <div class="observacao">O status PAGO/PENDENTE abaixo refere-se apenas ao plano ou atendimento. Os adicionais possuem status individuais acima.</div>` : ""}
     <div class="pagamento"><strong>${pagamento.pago ? "PAGO" : "PENDENTE / A CONFERIR"}</strong>${pagamento.pago && pagamento.forma ? `<span>${nome(pagamento.forma)}</span>` : ""}</div>
     ${plano ? `<div class="observacao">O valor indicado refere-se ao ciclo completo do plano, não apenas ao banho desta data.${valor === null || valor === undefined ? " Confira o valor total do plano no cadastro antes de cobrar." : ""}</div>` : ""}`;
   documentoComprovante(dados, "COMPROVANTE DE ATENDIMENTO");
@@ -515,6 +545,7 @@ function imprimirComprovanteGrupo(
   let totalPago = 0;
   let totalPendente = 0;
   let faltamValores = false;
+  let totalExtras = 0;
   const linhas = itens.map((item, indice) => {
     // Não agrupar ciclos antigos sem identificador: podem ser ciclos diferentes.
     const chave = item.plano && item.ciclo !== null
@@ -526,6 +557,12 @@ function imprimirComprovanteGrupo(
       else if (item.pago) totalPago += item.valor;
       else totalPendente += item.valor;
     }
+    const extrasAtivos = item.extras.filter(e => e.pagamento_status !== "Cancelado");
+    for (const extra of extrasAtivos) {
+      totalExtras += Number(extra.valor || 0);
+      if (extra.pagamento_status === "Pago") totalPago += Number(extra.valor || 0);
+      else totalPendente += Number(extra.valor || 0);
+    }
     const tipo = item.plano ? `Plano ${item.tipoPlano || ""}${item.ciclo !== null ? ` • Ciclo ${item.ciclo}` : ""}` : "Atendimento avulso";
     return `<div class="pet">
       <div class="nome-pet">${nome(item.petNome)}</div>
@@ -534,6 +571,7 @@ function imprimirComprovanteGrupo(
       ${item.identificacao ? `<div class="detalhe">${nome(item.identificacao)}</div>` : ""}
       ${mostrarValores ? `<div class="linha"><span class="rotulo">${item.plano ? "Total do ciclo" : "Valor"}</span><span class="valor"><strong>${nome(valorComprovante(item.valor))}</strong></span></div>` : ""}
       ${mostrarValores ? `<div class="detalhe"><strong>${item.pago ? "PAGO" : "PENDENTE"}</strong>${item.pago && item.forma ? ` • ${nome(item.forma)}` : ""}</div>` : ""}
+      ${mostrarValores ? extrasAtivos.map(e => `<div class="linha"><span class="rotulo">Extra: ${nome(e.nome_servico)} (${nome(e.pagamento_status)})</span><span class="valor">${nome(formatarValor(Number(e.valor)))}</span></div>`).join("") : ""}
       ${mostrarValores && repetido ? `<div class="observacao">Mesmo ciclo: valor contabilizado uma única vez.</div>` : ""}
     </div>`;
   }).join("");
@@ -545,7 +583,9 @@ function imprimirComprovanteGrupo(
     <hr class="separador" />
     ${linhas}
     <hr class="separador" />
-    ${mostrarValores ? `<div class="linha"><span class="rotulo">VALORES JÁ PAGOS</span><span class="valor"><strong>${formatarValor(totalPago)}</strong></span></div>
+    ${mostrarValores ? `<div class="linha"><span class="rotulo">TOTAL DOS EXTRAS INCLUÍDOS</span><span class="valor"><strong>${formatarValor(totalExtras)}</strong></span></div>
+    <div class="linha"><span class="rotulo">TOTAL GERAL (PLANOS + EXTRAS)</span><span class="valor"><strong>${faltamValores ? "A CONFERIR" : formatarValor(totalPago + totalPendente)}</strong></span></div>
+    <div class="linha"><span class="rotulo">VALORES JÁ PAGOS</span><span class="valor"><strong>${formatarValor(totalPago)}</strong></span></div>
     <div class="etiqueta" style="text-align:center;margin-top:10px">TOTAL PENDENTE${faltamValores ? " CONHECIDO" : ""}</div>
     <div class="montante">${formatarValor(totalPendente)}</div>
     ${faltamValores ? `<div class="observacao"><strong>ATENÇÃO:</strong> Há valores de ciclos/serviços a conferir. O total acima está incompleto; não utilize como valor final de cobrança.</div>` : ""}
@@ -560,6 +600,7 @@ export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
   const [pagamentosPlanos, setPagamentosPlanos] = useState<PagamentoPlano[]>([]);
+  const [todosExtras, setTodosExtras] = useState<ExtraAgendamento[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [mesAtual, setMesAtual] = useState(new Date());
   const [dataSelecionada, setDataSelecionada] = useState(obterDataLocal());
@@ -579,6 +620,13 @@ export default function AgendaPage() {
   const [observacoes, setObservacoes] = useState("");
   const [valorAgendamento, setValorAgendamento] = useState("");
   const [salvandoValor, setSalvandoValor] = useState(false);
+  const [extrasAgenda, setExtrasAgenda] = useState<ExtraAgendamento[]>([]);
+  const [carregandoExtras, setCarregandoExtras] = useState(false);
+  const [salvandoExtra, setSalvandoExtra] = useState(false);
+  const [servicoExtraId, setServicoExtraId] = useState("");
+  const [valorExtra, setValorExtra] = useState("");
+  const [erroExtra, setErroExtra] = useState("");
+
   const [salvando, setSalvando] = useState(false);
   const [renovacao, setRenovacao] = useState<Agendamento | null>(null);
   const [renovacoesGrupo, setRenovacoesGrupo] = useState<Agendamento[]>([]);
@@ -628,6 +676,7 @@ export default function AgendaPage() {
         agendamentosR,
         atendimentosR,
         pagamentosR,
+        extrasR,
       ] = await Promise.all([
         supabase
           .from("clientes")
@@ -662,6 +711,10 @@ export default function AgendaPage() {
               .select("id, pet_id, ciclo, valor, forma_pagamento, data_pagamento")
               .order("data_pagamento")
           : Promise.resolve({ data: [] as PagamentoPlano[], error: null }),
+        administrador
+          ? supabase.from("servicos_extras_agendamento")
+              .select("id,agendamento_id,pet_id,servico_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento")
+          : Promise.resolve({ data: [] as ExtraAgendamento[], error: null }),
       ]);
 
       if (clientesR.error) console.error(clientesR.error);
@@ -669,6 +722,7 @@ export default function AgendaPage() {
       if (servicosR.error) console.error(servicosR.error);
       if (agendamentosR.error) console.error(agendamentosR.error);
       if (atendimentosR.error) console.error(atendimentosR.error);
+      if (extrasR.error) throw new Error("Não foi possível carregar os serviços extras: " + extrasR.error.message);
       if (pagamentosR.error) {
         console.error("Erro ao carregar pagamentos:", pagamentosR.error);
       }
@@ -730,10 +784,11 @@ export default function AgendaPage() {
       setAgendamentos(agendamentosFormatados);
       setAtendimentos(listaAtendimentos);
       setPagamentosPlanos(listaPagamentos);
+      setTodosExtras((extrasR.data || []) as ExtraAgendamento[]);
     } catch (erro) {
       setPerfilUsuario(null);
       setClientes([]); setPets([]); setServicos([]);
-      setAgendamentos([]); setAtendimentos([]); setPagamentosPlanos([]);
+      setAgendamentos([]); setAtendimentos([]); setPagamentosPlanos([]); setTodosExtras([]);
       console.error("Erro ao carregar a agenda:", erro);
       alert("Não foi possível carregar todos os dados da agenda.");
     } finally {
@@ -1093,8 +1148,89 @@ export default function AgendaPage() {
     } finally { setSalvandoValor(false); }
   }
 
+  async function carregarExtrasAgendamento(agendamentoId: string) {
+    setCarregandoExtras(true);
+    setErroExtra("");
+    setExtrasAgenda([]);
+    try {
+      const { data, error } = await supabase
+        .from("servicos_extras_agendamento")
+        .select("id,agendamento_id,pet_id,servico_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento")
+        .eq("agendamento_id", agendamentoId)
+        .order("criado_em", { ascending: true });
+      if (error) throw error;
+      setExtrasAgenda((data || []) as ExtraAgendamento[]);
+      setTodosExtras(anteriores => [
+        ...anteriores.filter(e => e.agendamento_id !== agendamentoId),
+        ...((data || []) as ExtraAgendamento[]),
+      ]);
+    } catch (e: unknown) {
+      setErroExtra(e instanceof Error ? e.message : "Não foi possível carregar os serviços extras.");
+    } finally {
+      setCarregandoExtras(false);
+    }
+  }
+
+  async function adicionarExtraAgendamento() {
+    const ag = agendamentoSelecionado;
+    if (!ehAdmin || !ag || salvandoExtra) return;
+    const servico = servicos.find(s => s.id === servicoExtraId && NOMES_EXTRAS.has(s.nome));
+    const texto = valorExtra.trim().replace(",", ".");
+    const numero = Number(texto);
+    if (!servico || !texto || !Number.isFinite(numero) || numero < 0) {
+      setErroExtra("Selecione um adicional e informe um valor válido.");
+      return;
+    }
+    setSalvandoExtra(true);
+    setErroExtra("");
+    try {
+      const { error } = await supabase.from("servicos_extras_agendamento").insert({
+        agendamento_id: ag.id,
+        pet_id: ag.pet_id,
+        servico_id: servico.id,
+        nome_servico: servico.nome,
+        valor: numero,
+        pagamento_status: "Pendente",
+      });
+      if (error) throw error;
+      setServicoExtraId("");
+      setValorExtra("");
+      await carregarExtrasAgendamento(ag.id);
+    } catch (e: unknown) {
+      setErroExtra(e instanceof Error ? e.message : "Não foi possível adicionar o serviço extra.");
+    } finally {
+      setSalvandoExtra(false);
+    }
+  }
+
+  async function cancelarExtraAgendamento(extra: ExtraAgendamento) {
+    if (!ehAdmin || !agendamentoSelecionado || salvandoExtra || extra.pagamento_status !== "Pendente") return;
+    if (!window.confirm(`Cancelar o adicional "${extra.nome_servico}"? O registro será mantido no histórico.`)) return;
+    setSalvandoExtra(true);
+    setErroExtra("");
+    try {
+      const { data, error } = await supabase.from("servicos_extras_agendamento")
+        .update({ pagamento_status: "Cancelado" })
+        .eq("id", extra.id)
+        .eq("pagamento_status", "Pendente")
+        .select("id");
+      if (error) throw error;
+      if (!data?.length) throw new Error("O adicional não está mais pendente. Atualize e confira.");
+      await carregarExtrasAgendamento(agendamentoSelecionado.id);
+    } catch (e: unknown) {
+      setErroExtra(e instanceof Error ? e.message : "Não foi possível cancelar o adicional.");
+    } finally {
+      setSalvandoExtra(false);
+    }
+  }
+
   function abrirEdicao(agendamento: Agendamento) {
     setAgendamentoSelecionado(agendamento);
+    setExtrasAgenda([]);
+    setServicoExtraId("");
+    setValorExtra("");
+    setErroExtra("");
+    if (ehAdmin) void carregarExtrasAgendamento(agendamento.id);
     setPetSelecionado(agendamento.pet_id);
 
     const pet = pets.find((item) => item.id === agendamento.pet_id);
@@ -1900,6 +2036,8 @@ export default function AgendaPage() {
   }
 
   function renderPetDoGrupo(agendamento: Agendamento) {
+    const extrasDoBanho = todosExtras.filter(e => e.agendamento_id === agendamento.id && e.pagamento_status !== "Cancelado");
+    const totalExtrasBanho = extrasDoBanho.reduce((t, e) => t + Number(e.valor || 0), 0);
     const concluido = estaConcluido(agendamento);
     const cancelado = estaCancelado(agendamento);
     const pagamento = ehAdmin ? obterPagamentoDoCiclo(agendamento) : null;
@@ -1957,6 +2095,19 @@ export default function AgendaPage() {
 
               <p className="mt-2 text-sm font-semibold text-slate-700">🛁 {obterNomeServico(agendamento)}</p>
               {ehAdmin && <p className="mt-1 text-sm text-slate-600">{ehPlano(agendamento) ? "Valor do ciclo" : "Valor do atendimento"}: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(pagamento.valor)}</strong></p>}
+              {ehAdmin && extrasDoBanho.length > 0 && (
+                <div className="mt-1 space-y-1 text-sm text-slate-600">
+                  {extrasDoBanho.map(extra => (
+                    <p key={extra.id}>
+                      + {extra.nome_servico}: <strong>{formatarValor(Number(extra.valor))}</strong>
+                      <span className="text-xs text-slate-500"> · {extra.pagamento_status}</span>
+                    </p>
+                  ))}
+                  <p className="font-semibold text-slate-700">
+                    Total geral: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(Number(pagamento.valor) + totalExtrasBanho)}</strong>
+                  </p>
+                </div>
+              )}
               {agendamento.observacoes?.trim() && (
                 <p className="mt-2 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700">📝 {agendamento.observacoes.trim()}</p>
               )}
@@ -1972,7 +2123,8 @@ export default function AgendaPage() {
                 imprimirComprovante(
                   agendamento,
                   obterNomeServico(agendamento),
-                  pagamento
+                  pagamento,
+                  extrasDoBanho
                 )
               }
               className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
@@ -2097,6 +2249,7 @@ export default function AgendaPage() {
                       tipoPlano: agendamento.plano,
                       ciclo: agendamento.ciclo,
                       petId: agendamento.pet_id,
+                      extras: todosExtras.filter(e => e.agendamento_id === agendamento.id),
                     };
                   }),
                   ehAdmin
@@ -2546,6 +2699,57 @@ export default function AgendaPage() {
                       </div>)}
                     </div>
                   )}
+                </div>
+              )}
+
+              {agendamentoSelecionado && ehAdmin && (
+                <div className="md:col-span-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <h4 className="font-bold text-emerald-950">Serviços extras deste banho</h4>
+                  <p className="mt-1 text-xs text-emerald-900">Adicionais cobrados à parte, sem alterar o valor do plano. Salve os extras pelo botão desta seção.</p>
+                  {carregandoExtras ? <p className="mt-3 text-sm">Carregando adicionais...</p> : (
+                    <div className="mt-3 space-y-2">
+                      {extrasAgenda.length === 0 && <p className="text-sm text-slate-600">Nenhum adicional cadastrado.</p>}
+                      {extrasAgenda.map(extra => (
+                        <div key={extra.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-3 text-sm">
+                          <span className="font-medium">{extra.nome_servico}</span>
+                          <span>{formatarValor(extra.valor)} · {extra.pagamento_status}</span>
+                          {extra.pagamento_status === "Pendente" && (
+                            <button type="button" disabled={salvandoExtra}
+                              onClick={() => void cancelarExtraAgendamento(extra)}
+                              className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-700 disabled:opacity-50">Cancelar adicional</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-3 text-sm font-semibold text-emerald-950">
+                    Total dos extras ativos: {formatarValor(extrasAgenda.filter(e => e.pagamento_status !== "Cancelado").reduce((total, e) => total + Number(e.valor || 0), 0))}
+                  </p>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_130px]">
+                    <select value={servicoExtraId} disabled={salvandoExtra}
+                      onChange={e => {
+                        const id = e.target.value;
+                        setServicoExtraId(id);
+                        const servico = servicos.find(s => s.id === id);
+                        setValorExtra(servico ? String(servico.preco ?? 0).replace(".", ",") : "");
+                      }}
+                      className="min-w-0 rounded-xl border border-emerald-200 bg-white px-3 py-3 text-sm">
+                      <option value="">Selecione um serviço extra</option>
+                      {servicos.filter(s => NOMES_EXTRAS.has(s.nome)).map(s => (
+                        <option key={s.id} value={s.id}>{s.nome}</option>
+                      ))}
+                    </select>
+                    <input aria-label="Valor do adicional em reais" type="text" inputMode="decimal"
+                      placeholder="Valor (R$)" value={valorExtra} disabled={salvandoExtra}
+                      onChange={e => setValorExtra(e.target.value)}
+                      className="min-w-0 rounded-xl border border-emerald-200 bg-white px-3 py-3 text-sm" />
+                  </div>
+                  {erroExtra && <p className="mt-2 text-sm text-red-700">{erroExtra}</p>}
+                  <button type="button" onClick={() => void adicionarExtraAgendamento()}
+                    disabled={salvandoExtra || carregandoExtras || !servicoExtraId}
+                    className="mt-3 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">
+                    {salvandoExtra ? "Salvando adicional..." : "+ Salvar serviço extra"}
+                  </button>
                 </div>
               )}
 
