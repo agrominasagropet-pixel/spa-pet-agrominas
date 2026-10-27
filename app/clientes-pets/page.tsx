@@ -1347,8 +1347,8 @@ export default function ClientesPetsPage() {
       if (!eraAvulso && cadastroAtual?.frequencia !== pet.servicos.frequencia) continue;
 
       const inicio = pet.servicos.dataInicio;
-      if (!inicio || inicio <= hojeISO()) {
-        throw new Error(`Para iniciar o plano de ${pet.nome}, escolha uma data futura para o primeiro atendimento.`);
+      if (!inicio || inicio < hojeISO()) {
+        throw new Error(`Para iniciar o plano de ${pet.nome}, escolha a data de hoje ou uma data futura para o primeiro atendimento.`);
       }
 
       const quantidade = quantidadeBanhosPorCiclo(pet.servicos.frequencia);
@@ -1367,8 +1367,9 @@ export default function ClientesPetsPage() {
         String(item.plano) === pet.servicos.frequencia
       );
       if (jaTemPlano) continue;
-      // Para recuperar cadastros já convertidos, exige histórico avulso.
-      if (!eraAvulso && !existentes.some((item) => String(item.plano) === "Avulso")) continue;
+      // Recupera também um plano salvo no cadastro sem agendamentos,
+      // mesmo que o pet não possua histórico de atendimento avulso.
+      // A confirmação e a checagem de conflitos abaixo permanecem obrigatórias.
 
       const conflito = existentes.some((item) =>
         datas.includes(String(item.data)) &&
