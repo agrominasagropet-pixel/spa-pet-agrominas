@@ -594,11 +594,10 @@ type ConversaoPlano = { id: string; pet_id: string; agendamento_avulso_id: strin
 type ParcelaPlano = { id: string; conversao_id: string; valor: number; forma_pagamento: string; data_pagamento: string };
 
 export default function ClientesPetsPage() {
-  const [avulsosConvertiveis, setAvulsosConvertiveis] = useState<Record<string, {id:string;data:string;valor:number}[]>>({});
+  const [avulsosConvertiveis, setAvulsosConvertiveis] = useState<Record<string, {id:string;data:string;valor:number;pago:boolean}[]>>({});
+  const [modoInicioPlano, setModoInicioPlano] = useState<Record<string, "novo" | "aproveitar">>({});
   const [convertendo, setConvertendo] = useState(false);
   const [conversaoAberta, setConversaoAberta] = useState<string | null>(null);
-  const [planoConversao, setPlanoConversao] = useState<"Quinzenal" | "Mensal" | null>(null);
-  const [valorConversao, setValorConversao] = useState("");
   async function converterAvulso(pet: Pet, agId: string, credito: number, planoTexto: "Quinzenal" | "Mensal", precoTexto: string) {
     const preco = valorNumerico(precoTexto);
     if(!Number.isFinite(preco) || preco < credito || preco <= 0) { window.alert("Valor inválido: não pode ser inferior ao crédito já pago.");return; }
@@ -648,14 +647,21 @@ export default function ClientesPetsPage() {
       ]);
       if (ags.error || ats.error || cvs.error || !ativo) return;
       const convertidos = new Set((cvs.data || []).map(c => c.agendamento_avulso_id));
-      const pagos = new Map((ats.data || []).filter(a => a.agendamento_id && a.data_pagamento && Number(a.valor)>0).map(a => [a.agendamento_id!,Number(a.valor)]));
-      const mapa: Record<string,{id:string;data:string;valor:number}[]> = {};
-      for(const a of ags.data || []) {
-        if(a.plano && a.plano !== "Avulso") continue;
-        if(!["concluido","concluído","realizado","compareceu","finalizado"].includes((a.status || "").toLowerCase())) continue;
-        if(convertidos.has(a.id) || !pagos.has(a.id)) continue;
-        (mapa[a.pet_id] ||= []).push({id:a.id,data:a.data,valor:pagos.get(a.id)!});
+      // Soma todos os recebimentos efetivamente confirmados por agendamento.
+      const pagos = new Map<string, number>();
+      for (const at of ats.data || []) {
+        if (!at.agendamento_id || !at.data_pagamento || Number(at.valor) <= 0) continue;
+        pagos.set(at.agendamento_id, (pagos.get(at.agendamento_id) || 0) + Number(at.valor));
       }
+      const mapa: Record<string,{id:string;data:string;valor:number;pago:boolean}[]> = {};
+      for (const a of ags.data || []) {
+        if (a.plano && a.plano !== "Avulso") continue;
+        if (!["concluido","concluído","realizado","compareceu","finalizado"].includes((a.status || "").trim().toLowerCase())) continue;
+        if (convertidos.has(a.id)) continue;
+        const valor = Math.round((pagos.get(a.id) || 0) * 100) / 100;
+        (mapa[a.pet_id] ||= []).push({ id: a.id, data: a.data, valor, pago: valor > 0 });
+      }
+      for (const itens of Object.values(mapa)) itens.sort((a,b) => b.data.localeCompare(a.data));
       if(ativo) setAvulsosConvertiveis(mapa);
     }
     void consultar(); return () => {ativo=false};
@@ -1380,6 +1386,9 @@ export default function ClientesPetsPage() {
 
     for (const pet of pets) {
       if (pet.id.startsWith("novo-") || pet.servicos.frequencia === "Avulso") continue;
+      if (modoInicioPlano[pet.id] === "aproveitar") {
+        throw new Error(`Para ${pet.nome}, confirme a conversão pelo botão dentro de Plano e Renovação. Não use Salvar alterações.`);
+      }
 
       const { data: cadastroAtual, error: erroConsultaPet } = await supabase
         .from("pets")
@@ -3244,46 +3253,6 @@ export default function ClientesPetsPage() {
                         </div>
                       </div>
 
-                      {modoEdicao && (avulsosConvertiveis[pet.id] || []).length > 0 && (
-                        <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-5">
-                          <h4 className="font-bold text-blue-900">Mudar para plano</h4>
-                          <p className="mt-1 text-sm text-blue-800">Selecione o banho pago e escolha Quinzenal ou Mensal. O valor pago será usado como crédito.</p>
-                          {(avulsosConvertiveis[pet.id] || []).map((a) => (
-                            <div key={a.id} className="mt-3 rounded-xl border border-blue-100 bg-white p-4">
-                              <button type="button" onClick={() => { setConversaoAberta(conversaoAberta === a.id ? null : a.id); setPlanoConversao(null); setValorConversao(""); }}
-                                className="w-full rounded-lg border border-blue-300 px-3 py-3 text-left text-sm font-semibold text-blue-900 hover:bg-blue-50">
-                                Banho de {formatarData(a.data)} — crédito {formatarMoeda(a.valor)} {conversaoAberta === a.id ? "▲" : "▼"}
-                              </button>
-                              {conversaoAberta === a.id && (
-                                <div className="mt-3 space-y-3">
-                                  <div className="grid grid-cols-2 gap-3">
-                                    {(["Quinzenal", "Mensal"] as const).map((opcao) => (
-                                      <button key={opcao} type="button" onClick={() => setPlanoConversao(opcao)}
-                                        className={`rounded-xl border px-3 py-3 font-semibold transition ${planoConversao === opcao ? "border-emerald-600 bg-emerald-100 text-emerald-900" : "border-slate-300 bg-white text-slate-800 hover:border-emerald-500"}`}>
-                                        {opcao}
-                                      </button>
-                                    ))}
-                                  </div>
-                                  {planoConversao && (
-                                    <div className="space-y-3">
-                                      <label className="block text-sm font-semibold text-slate-700">Valor total do plano {planoConversao} (R$)
-                                        <input type="text" inputMode="decimal" value={valorConversao} onChange={(e) => setValorConversao(e.target.value)} placeholder="Ex.: 120,00"
-                                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-base" />
-                                      </label>
-                                      <p className="text-sm text-slate-700">Crédito: <strong>{formatarMoeda(a.valor)}</strong> · Saldo: <strong>{formatarMoeda(Math.max(0, valorNumerico(valorConversao) - a.valor))}</strong></p>
-                                      <button type="button" disabled={convertendo || valorNumerico(valorConversao) < a.valor || valorNumerico(valorConversao) <= 0}
-                                        onClick={() => void converterAvulso(pet, a.id, a.valor, planoConversao, valorConversao)}
-                                        className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
-                                        {convertendo ? "Convertendo..." : `Confirmar conversão para ${planoConversao}`}
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
                       <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
                         <div className="mb-5">
                           <div className="flex items-center gap-2">
@@ -3349,6 +3318,47 @@ export default function ClientesPetsPage() {
                             )
                           )}
                         </div>
+
+                        {modoEdicao && !pet.id.startsWith("novo-") && pet.servicos.frequencia !== "Avulso" && (avulsosConvertiveis[pet.id] || []).length > 0 && (
+                          <div className="mt-5 rounded-xl border border-emerald-200 bg-white p-4">
+                            <p className="text-sm font-bold text-slate-900">Como deseja iniciar o plano?</p>
+                            <div className="mt-3 grid gap-2 md:grid-cols-2">
+                              <button type="button" onClick={() => setModoInicioPlano(v => ({...v,[pet.id]:"aproveitar"}))}
+                                className={`rounded-xl border p-3 text-left text-sm ${modoInicioPlano[pet.id] === "aproveitar" ? "border-emerald-600 bg-emerald-50" : "border-slate-200"}`}>
+                                <strong>Aproveitar último banho Avulso</strong><span className="mt-1 block text-xs text-slate-600">O banho realizado será o primeiro do plano.</span>
+                              </button>
+                              <button type="button" onClick={() => {setModoInicioPlano(v => ({...v,[pet.id]:"novo"}));setConversaoAberta(null);}}
+                                className={`rounded-xl border p-3 text-left text-sm ${modoInicioPlano[pet.id] !== "aproveitar" ? "border-emerald-600 bg-emerald-50" : "border-slate-200"}`}>
+                                <strong>Iniciar novo ciclo</strong><span className="mt-1 block text-xs text-slate-600">Mantém o banho anterior e agenda todos os banhos.</span>
+                              </button>
+                            </div>
+                            {modoInicioPlano[pet.id] === "aproveitar" && (
+                              <div className="mt-4 space-y-3">
+                                <p className="text-xs text-slate-600">Selecione o atendimento a aproveitar:</p>
+                                {(avulsosConvertiveis[pet.id] || []).map(a => (
+                                  <div key={a.id} className="rounded-lg border border-slate-200 p-3">
+                                    <label className="flex items-center gap-2 text-sm font-semibold">
+                                      <input type="radio" name={`avulso-${pet.id}`} checked={conversaoAberta === a.id} onChange={() => setConversaoAberta(a.id)} />
+                                      {formatarData(a.data)} — {a.pago ? `Recebido: ${formatarMoeda(a.valor)}` : "Sem pagamento registrado"}
+                                    </label>
+                                    {conversaoAberta === a.id && (
+                                      <div className="mt-3 space-y-2">
+                                        <p className="text-sm">Plano: <strong>{pet.servicos.frequencia}</strong> · Total: <strong>{formatarMoeda(valorNumerico(pet.servicos.valorTotal))}</strong></p>
+                                        <p className="text-sm">Crédito confirmado: <strong>{formatarMoeda(a.valor)}</strong> · Saldo: <strong>{formatarMoeda(Math.max(0,valorNumerico(pet.servicos.valorTotal)-a.valor))}</strong></p>
+                                        <button type="button" disabled={convertendo || valorNumerico(pet.servicos.valorTotal) < a.valor || valorNumerico(pet.servicos.valorTotal) <= 0}
+                                          onClick={() => void converterAvulso(pet,a.id,a.valor,pet.servicos.frequencia as "Mensal" | "Quinzenal",pet.servicos.valorTotal)}
+                                          className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">
+                                          {convertendo ? "Convertendo..." : "Confirmar aproveitamento do banho"}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                <p className="text-xs text-slate-500">Use o botão de conversão acima. Não clique em Salvar alterações para aproveitar o banho.</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         <div className="mt-4 grid gap-4 md:grid-cols-3">
                           <div>
@@ -3445,7 +3455,7 @@ export default function ClientesPetsPage() {
                             <strong>
                               Atenção:
                             </strong>{" "}
-                            ao mudar de Avulso para Quinzenal ou Mensal,
+                            ao escolher Iniciar novo ciclo e mudar de Avulso para Quinzenal ou Mensal,
                             confirme a data futura do primeiro atendimento.
                             Ao salvar, um novo ciclo será criado na agenda,
                             sem alterar o banho avulso anterior.
