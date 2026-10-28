@@ -590,7 +590,32 @@ function criarResumoPlano(
   };
 }
 
+type ConversaoPlano = { id: string; pet_id: string; agendamento_avulso_id: string; atendimento_original_id: string; ciclo: number; plano_destino: string; valor_plano: number; credito_avulso: number };
+type ParcelaPlano = { id: string; conversao_id: string; valor: number; forma_pagamento: string; data_pagamento: string };
+
 export default function ClientesPetsPage() {
+  const [avulsosConvertiveis, setAvulsosConvertiveis] = useState<Record<string, {id:string;data:string;valor:number}[]>>({});
+  const [convertendo, setConvertendo] = useState(false);
+  const [conversaoAberta, setConversaoAberta] = useState<string | null>(null);
+  const [planoConversao, setPlanoConversao] = useState<"Quinzenal" | "Mensal" | null>(null);
+  const [valorConversao, setValorConversao] = useState("");
+  async function converterAvulso(pet: Pet, agId: string, credito: number, planoTexto: "Quinzenal" | "Mensal", precoTexto: string) {
+    const preco = valorNumerico(precoTexto);
+    if(!Number.isFinite(preco) || preco < credito || preco <= 0) { window.alert("Valor inválido: não pode ser inferior ao crédito já pago.");return; }
+    if(!window.confirm(`Converter banho concluído em primeiro banho do plano ${planoTexto}?\nCrédito: R$ ${credito.toFixed(2)}\nSaldo: R$ ${(preco-credito).toFixed(2)}`))return;
+    setConvertendo(true);
+    try {
+      const {error} = await supabase.rpc("converter_avulso_em_plano_agrominas",{p_agendamento_id:agId,p_plano:planoTexto,p_valor_plano:preco,p_turno:pet.servicos.turno});
+      if(error) throw error;
+      window.alert("Conversão registrada. Confira os banhos restantes na Agenda e o saldo em Pagamentos.");
+      await carregarClientes();
+      setConversaoAberta(null);
+      setModalCadastro(false);
+      setClienteSelecionado(null);
+    } catch(e) {window.alert(e instanceof Error ? e.message : "Não foi possível converter o banho.");}
+    finally {setConvertendo(false);}
+  }
+
   const [clientes, setClientes] =
     useState<Cliente[]>([]);
 
@@ -612,6 +637,29 @@ export default function ClientesPetsPage() {
     clienteSelecionado,
     setClienteSelecionado,
   ] = useState<Cliente | null>(null);
+
+  useEffect(() => {
+    let ativo = true;
+    async function consultar() {
+      const [ags, ats, cvs] = await Promise.all([
+        supabase.from("agendamentos").select("id,pet_id,data,plano,status"),
+        supabase.from("atendimentos").select("agendamento_id,valor,data_pagamento"),
+        supabase.from("conversoes_avulso_plano").select("agendamento_avulso_id")
+      ]);
+      if (ags.error || ats.error || cvs.error || !ativo) return;
+      const convertidos = new Set((cvs.data || []).map(c => c.agendamento_avulso_id));
+      const pagos = new Map((ats.data || []).filter(a => a.agendamento_id && a.data_pagamento && Number(a.valor)>0).map(a => [a.agendamento_id!,Number(a.valor)]));
+      const mapa: Record<string,{id:string;data:string;valor:number}[]> = {};
+      for(const a of ags.data || []) {
+        if(a.plano && a.plano !== "Avulso") continue;
+        if(!["concluido","concluído","realizado","compareceu","finalizado"].includes((a.status || "").toLowerCase())) continue;
+        if(convertidos.has(a.id) || !pagos.has(a.id)) continue;
+        (mapa[a.pet_id] ||= []).push({id:a.id,data:a.data,valor:pagos.get(a.id)!});
+      }
+      if(ativo) setAvulsosConvertiveis(mapa);
+    }
+    void consultar(); return () => {ativo=false};
+  }, [clienteSelecionado]);
 
   const [carregando, setCarregando] =
     useState(true);
@@ -3196,6 +3244,46 @@ export default function ClientesPetsPage() {
                         </div>
                       </div>
 
+                      {modoEdicao && (avulsosConvertiveis[pet.id] || []).length > 0 && (
+                        <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+                          <h4 className="font-bold text-blue-900">Mudar para plano</h4>
+                          <p className="mt-1 text-sm text-blue-800">Selecione o banho pago e escolha Quinzenal ou Mensal. O valor pago será usado como crédito.</p>
+                          {(avulsosConvertiveis[pet.id] || []).map((a) => (
+                            <div key={a.id} className="mt-3 rounded-xl border border-blue-100 bg-white p-4">
+                              <button type="button" onClick={() => { setConversaoAberta(conversaoAberta === a.id ? null : a.id); setPlanoConversao(null); setValorConversao(""); }}
+                                className="w-full rounded-lg border border-blue-300 px-3 py-3 text-left text-sm font-semibold text-blue-900 hover:bg-blue-50">
+                                Banho de {formatarData(a.data)} — crédito {formatarMoeda(a.valor)} {conversaoAberta === a.id ? "▲" : "▼"}
+                              </button>
+                              {conversaoAberta === a.id && (
+                                <div className="mt-3 space-y-3">
+                                  <div className="grid grid-cols-2 gap-3">
+                                    {(["Quinzenal", "Mensal"] as const).map((opcao) => (
+                                      <button key={opcao} type="button" onClick={() => setPlanoConversao(opcao)}
+                                        className={`rounded-xl border px-3 py-3 font-semibold transition ${planoConversao === opcao ? "border-emerald-600 bg-emerald-100 text-emerald-900" : "border-slate-300 bg-white text-slate-800 hover:border-emerald-500"}`}>
+                                        {opcao}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {planoConversao && (
+                                    <div className="space-y-3">
+                                      <label className="block text-sm font-semibold text-slate-700">Valor total do plano {planoConversao} (R$)
+                                        <input type="text" inputMode="decimal" value={valorConversao} onChange={(e) => setValorConversao(e.target.value)} placeholder="Ex.: 120,00"
+                                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-base" />
+                                      </label>
+                                      <p className="text-sm text-slate-700">Crédito: <strong>{formatarMoeda(a.valor)}</strong> · Saldo: <strong>{formatarMoeda(Math.max(0, valorNumerico(valorConversao) - a.valor))}</strong></p>
+                                      <button type="button" disabled={convertendo || valorNumerico(valorConversao) < a.valor || valorNumerico(valorConversao) <= 0}
+                                        onClick={() => void converterAvulso(pet, a.id, a.valor, planoConversao, valorConversao)}
+                                        className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
+                                        {convertendo ? "Convertendo..." : `Confirmar conversão para ${planoConversao}`}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
                         <div className="mb-5">
                           <div className="flex items-center gap-2">

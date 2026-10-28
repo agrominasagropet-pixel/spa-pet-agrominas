@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import MenuLateral from "@/app/components/MenuLateral";
+type ConversaoPlano = { id: string; pet_id: string; agendamento_avulso_id: string; atendimento_original_id: string; ciclo: number; plano_destino: string; valor_plano: number; credito_avulso: number };
+type ParcelaPlano = { id: string; conversao_id: string; valor: number; forma_pagamento: string; data_pagamento: string };
 type Atendimento = { id: string; agendamento_id: string | null; pet_id: string | null; data: string; data_pagamento: string | null; valor: number | null; forma_pagamento: string | null };
 type Agendamento = { id: string; pet_id: string; data: string; status: string | null; servico_nome: string | null; observacoes: string | null; valor_total: number | null; plano: string | null; ciclo: number | null; numero_banho: number | null; pagamento_status: string | null; forma_pagamento_plano: string | null };
 type PagamentoPlano = { id: string; pet_id: string; ciclo: number; valor: number; forma_pagamento: string | null; data_pagamento: string | null };
@@ -110,6 +112,8 @@ export default function RelatoriosPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [pagamentosPlanos, setPagamentosPlanos] = useState<PagamentoPlano[]>([]);
 
+  const [conversoes, setConversoes] = useState<ConversaoPlano[]>([]);
+  const [parcelas, setParcelas] = useState<ParcelaPlano[]>([]);
   const [extras, setExtras] = useState<Extra[]>([]);
   const [pets, setPets] = useState<Pet[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -125,16 +129,18 @@ export default function RelatoriosPage() {
     if (acesso !== "admin") return;
     setCarregando(true); setErro("");
     try {
-      const [ats, ags, pags, ps, cs, ex] = await Promise.all([
+      const [ats, ags, pags, ps, cs, ex, cvs, pars] = await Promise.all([
         buscarTodos<Atendimento>("atendimentos", "id,agendamento_id,pet_id,data,data_pagamento,valor,forma_pagamento", "data"),
         buscarTodos<Agendamento>("agendamentos", "id,pet_id,data,status,servico_nome,observacoes,valor_total,plano,ciclo,numero_banho,pagamento_status,forma_pagamento_plano", "data"),
         buscarTodos<PagamentoPlano>("pagamentos_planos", "id,pet_id,ciclo,valor,forma_pagamento,data_pagamento", "data_pagamento"),
         buscarTodos<Pet>("pets", "id,nome,cliente_id", "nome"),
         buscarTodos<Cliente>("clientes", "id,nome", "nome"),
 
-        buscarTodos<Extra>("servicos_extras_agendamento", "id,agendamento_id,pet_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento", "criado_em")
+        buscarTodos<Extra>("servicos_extras_agendamento", "id,agendamento_id,pet_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento", "criado_em"),
+        buscarTodos<ConversaoPlano>("conversoes_avulso_plano", "id,pet_id,agendamento_avulso_id,atendimento_original_id,ciclo,plano_destino,valor_plano,credito_avulso", "criado_em"),
+        buscarTodos<ParcelaPlano>("recebimentos_parciais_planos", "id,conversao_id,valor,forma_pagamento,data_pagamento", "data_pagamento")
       ]);
-      setAtendimentos(ats); setAgendamentos(ags); setPagamentosPlanos(pags); setPets(ps); setClientes(cs); setExtras(ex);
+      setAtendimentos(ats); setAgendamentos(ags); setPagamentosPlanos(pags); setPets(ps); setClientes(cs); setExtras(ex); setConversoes(cvs); setParcelas(pars);
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Não foi possível carregar os relatórios.");
     } finally { setCarregando(false); }
@@ -153,16 +159,25 @@ export default function RelatoriosPage() {
       const p = id ? mapaPets.get(id) : undefined;
       return { pet: p?.nome || "Pet não identificado", tutor: p ? mapaClientes.get(p.cliente_id)?.nome || "Tutor não identificado" : "Tutor não identificado" };
     };
+    const conversoesPorCiclo = new Map(conversoes.map(c => [chaveCiclo(c.pet_id,c.ciclo),c]));
+    const originaisConvertidos = new Set(conversoes.map(c => c.atendimento_original_id));
+    const parcelasPorConversao = new Map<string,number>();
+    for(const p of parcelas) parcelasPorConversao.set(p.conversao_id,(parcelasPorConversao.get(p.conversao_id)||0)+numero(p.valor));
     const ciclosPagos = new Set(pagamentosPlanos.map(p => chaveCiclo(p.pet_id, p.ciclo)));
     const receitas: Receita[] = [];
     for (const p of pagamentosPlanos) {
       const n = nomesPet(p.pet_id);
       receitas.push({ id: `plano-${p.id}`, petId: p.pet_id, data: dataISO(p.data_pagamento), ...n, descricao: `Plano · ciclo ${p.ciclo}`, forma: p.forma_pagamento || "Não informada", valor: numero(p.valor), origem: "Plano", dataAproximada: false });
     }
+    for(const p of parcelas) {
+      const c = conversoes.find(c => c.id === p.conversao_id);
+      if(!c) continue;
+      receitas.push({id:`parcela-${p.id}`,petId:c.pet_id,data:dataISO(p.data_pagamento),...nomesPet(c.pet_id),descricao:`Saldo do plano ${c.plano_destino} · ciclo ${c.ciclo}`,forma:p.forma_pagamento,valor:numero(p.valor),origem:"Plano",dataAproximada:false});
+    }
     for (const at of atendimentos) {
       const a = at.agendamento_id ? mapaAg.get(at.agendamento_id) : undefined;
       // Planos são contabilizados exclusivamente por pagamentos_planos.
-      if (ehPlano(a)) continue;
+      if (ehPlano(a) && !originaisConvertidos.has(at.id)) continue;
       if (!at.forma_pagamento) continue; // Sem pagamento confirmado, não é receita.
       const n = nomesPet(at.pet_id || a?.pet_id || null);
       receitas.push({ id: `avulso-${at.id}`, petId: at.pet_id || a?.pet_id || null, data: dataISO(at.data_pagamento || at.data), ...n, descricao: a?.servico_nome || "Atendimento avulso", forma: at.forma_pagamento, valor: numero(at.valor), origem: "Avulso", dataAproximada: !dataISO(at.data_pagamento) });
@@ -201,11 +216,17 @@ export default function RelatoriosPage() {
     for (const [chave, grupo] of grupos) {
       const primeiro = [...grupo].sort((a, b) => a.data.localeCompare(b.data))[0];
       const marcadoPago = grupo.some(a => normalizar(a.pagamento_status) === "pago");
-      if (marcadoPago && !ciclosPagos.has(chave)) {
+      if (marcadoPago && !ciclosPagos.has(chave) && !conversoesPorCiclo.has(chave)) {
         const n = nomesPet(primeiro.pet_id);
         const valores = [...new Set(grupo.map(a => numero(a.valor_total)).filter(v => v > 0))];
         const formas = [...new Set(grupo.map(a => (a.forma_pagamento_plano || "").trim()).filter(Boolean))];
         conferencias.push({ chave, petId: primeiro.pet_id, ciclo: primeiro.ciclo!, ...n, plano: primeiro.plano || "Plano", valor: valores[0] || 0, forma: formas.length === 1 ? formas[0] : "", inicio: primeiro.data, divergente: valores.length > 1 || formas.length > 1 });
+      }
+      const conversao = conversoesPorCiclo.get(chave);
+      if(conversao) {
+        const restante = Math.max(0, numero(conversao.valor_plano)-numero(conversao.credito_avulso)-(parcelasPorConversao.get(conversao.id)||0));
+        if(restante>0) pendentes.push({chave,...nomesPet(primeiro.pet_id),plano:`${primeiro.plano} · ciclo ${primeiro.ciclo} (saldo)`,valor:restante,inicio:primeiro.data});
+        continue;
       }
       if (marcadoPago || ciclosPagos.has(chave)) continue;
       const n = nomesPet(primeiro.pet_id);
@@ -227,7 +248,7 @@ export default function RelatoriosPage() {
     }
 
     return { receitas, linhas, pendentes, conferencias, semRegistroFinanceiro: conferencias.length };
-  }, [atendimentos, agendamentos, pagamentosPlanos, pets, clientes, extras]);
+  }, [atendimentos, agendamentos, pagamentosPlanos, pets, clientes, extras, conversoes, parcelas]);
   const valido = dataInicio && dataFim && dataInicio <= dataFim;
   const receitasPeriodo = useMemo(() => dados.receitas.filter(r => dentro(r.data, dataInicio, dataFim)), [dados, dataInicio, dataFim]);
   const atendimentosPeriodo = useMemo(() => dados.linhas.filter(a => dentro(a.data, dataInicio, dataFim)), [dados, dataInicio, dataFim]);

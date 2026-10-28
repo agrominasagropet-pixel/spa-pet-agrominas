@@ -8,6 +8,8 @@ import { supabase } from "@/lib/supabase";
 
 import MenuLateral from "@/app/components/MenuLateral";
 
+type ConversaoPlano = { id: string; pet_id: string; agendamento_avulso_id: string; atendimento_original_id: string; ciclo: number; plano_destino: string; valor_plano: number; credito_avulso: number };
+type ParcelaPlano = { id: string; conversao_id: string; valor: number; forma_pagamento: string; data_pagamento: string };
 type Cliente = {
 
   id: string;
@@ -329,6 +331,8 @@ export default function PagamentosPage() {
   const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
 
   const [pagamentos, setPagamentos] = useState<PagamentoPlano[]>([]);
+  const [conversoes, setConversoes] = useState<ConversaoPlano[]>([]);
+  const [parcelas, setParcelas] = useState<ParcelaPlano[]>([]);
   const [extras, setExtras] = useState<Extra[]>([]);
   const [extrasSelecionados, setExtrasSelecionados] = useState<string[]>([]);
   const [incluirPrincipal, setIncluirPrincipal] = useState(true);
@@ -377,7 +381,7 @@ export default function PagamentosPage() {
 
     try {
 
-      const [c, p, a, t, pg, ex] = await Promise.all([
+      const [c, p, a, t, pg, ex, cvs, pars] = await Promise.all([
 
         buscarTodos<Cliente>(
 
@@ -428,6 +432,8 @@ export default function PagamentosPage() {
                     "data_pagamento"
         ),
         buscarTodos<Extra>("servicos_extras_agendamento", "id,agendamento_id,pet_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento", "criado_em"),
+        buscarTodos<ConversaoPlano>("conversoes_avulso_plano", "id,pet_id,agendamento_avulso_id,atendimento_original_id,ciclo,plano_destino,valor_plano,credito_avulso", "criado_em"),
+        buscarTodos<ParcelaPlano>("recebimentos_parciais_planos", "id,conversao_id,valor,forma_pagamento,data_pagamento", "data_pagamento")
       ]);
 
       setClientes(c);
@@ -439,7 +445,7 @@ export default function PagamentosPage() {
       setAtendimentos(t);
 
       setPagamentos(pg);
-      setExtras(ex);
+      setExtras(ex); setConversoes(cvs); setParcelas(pars);
 
     } catch (e: unknown) {
 
@@ -617,6 +623,10 @@ export default function PagamentosPage() {
 
     }
 
+    const conversoesCiclo = new Map(conversoes.map(c => [`${c.pet_id}::${c.ciclo}`,c]));
+    const originaisConvertidos = new Set(conversoes.map(c => c.atendimento_original_id));
+    const recebidoConversao = new Map<string,number>();
+    for(const p of parcelas) recebidoConversao.set(p.conversao_id,(recebidoConversao.get(p.conversao_id)||0)+Number(p.valor));
     const resultado: Linha[] = [];
 
     for (const [chave, grupo] of grupos) {
@@ -659,6 +669,13 @@ export default function PagamentosPage() {
 
       const info = identificar(primeiro.pet_id);
 
+      const conversao = conversoesCiclo.get(chave);
+      if(conversao) {
+        const saldo = Math.max(0,Number(conversao.valor_plano)-Number(conversao.credito_avulso)-(recebidoConversao.get(conversao.id)||0));
+        resultado.push({chave:`conversao-${conversao.id}`,tipo:"plano",situacao:saldo>0?"pendente":"pago",petId:conversao.pet_id,...info,titulo:`Plano ${conversao.plano_destino} · Ciclo ${conversao.ciclo} · crédito ${moeda(Number(conversao.credito_avulso))}`,ciclo:conversao.ciclo,valor:saldo,data:primeiro.data,dataPagamento:"",forma:"",observacao:`Crédito avulso ${moeda(Number(conversao.credito_avulso))} · recebido do saldo ${moeda(recebidoConversao.get(conversao.id)||0)}`});
+        for(const p of parcelas.filter(p=>p.conversao_id===conversao.id)) resultado.push({chave:`parcela-${p.id}`,tipo:"plano",situacao:"pago",petId:conversao.pet_id,...info,titulo:`Parcela do plano ${conversao.plano_destino} · Ciclo ${conversao.ciclo}`,ciclo:conversao.ciclo,valor:Number(p.valor),data:primeiro.data,dataPagamento:(p.data_pagamento||"").slice(0,10),forma:p.forma_pagamento});
+        continue;
+      }
       if (registros.length > 0) {
 
         for (const pg of registros) {
@@ -807,7 +824,7 @@ export default function PagamentosPage() {
 
         : undefined;
 
-      if (ag && planoValido(ag)) continue;
+      if (ag && planoValido(ag) && !originaisConvertidos.has(at.id)) continue;
 
       const petId = at.pet_id || ag?.pet_id || "";
 
@@ -899,6 +916,7 @@ export default function PagamentosPage() {
     agendamentos,
 
     atendimentos,
+    conversoes, parcelas,
 
         pagamentos,
     extras,
@@ -1358,7 +1376,13 @@ export default function PagamentosPage() {
 
     try {
 
-            if (cobrarPrincipal && linha.tipo === "plano") {
+            if (cobrarPrincipal && linha.tipo === "plano" && linha.chave.startsWith("conversao-")) {
+              if(dataPagamento !== hoje()) throw new Error("Pagamentos de conversão são registrados com a data atual.");
+              const conversaoId = linha.chave.slice("conversao-".length);
+              const {error} = await supabase.rpc("receber_saldo_conversao_agrominas",{p_conversao_id:conversaoId,p_valor:numero,p_forma_pagamento:forma});
+              if(error) throw error;
+              pagamentoGravado = true;
+            } else if (cobrarPrincipal && linha.tipo === "plano") {
 
         if (linha.ciclo === null) {
 
