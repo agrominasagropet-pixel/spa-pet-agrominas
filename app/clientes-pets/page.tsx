@@ -37,6 +37,7 @@ type BanhoHistorico = {
   plano: string;
   ciclo: number | null;
   numeroBanho: number | null;
+  observacoes: string;
 };
 
 type Pet = {
@@ -625,6 +626,28 @@ export default function ClientesPetsPage() {
     finally {setConvertendo(false);}
   }
 
+  const [anotacaoEditando, setAnotacaoEditando] = useState<string | null>(null);
+  const [textoAnotacao, setTextoAnotacao] = useState("");
+  const [salvandoAnotacao, setSalvandoAnotacao] = useState(false);
+
+  async function salvarAnotacaoBanho(agendamentoId: string) {
+    if (salvandoAnotacao) return;
+    setSalvandoAnotacao(true);
+    try {
+      const { error } = await supabase
+        .from("agendamentos")
+        .update({ observacoes: textoAnotacao.trim() })
+        .eq("id", agendamentoId);
+      if (error) throw error;
+      await carregarClientes();
+      setAnotacaoEditando(null);
+    } catch (erro) {
+      window.alert(erro instanceof Error ? erro.message : "Erro ao salvar anotação.");
+    } finally {
+      setSalvandoAnotacao(false);
+    }
+  }
+
   const [clientes, setClientes] =
     useState<Cliente[]>([]);
 
@@ -965,6 +988,7 @@ export default function ClientesPetsPage() {
                     .map((agendamento) => {
                       const registro = agendamento as AgendamentoBanco & {
                         servico_nome?: string | null;
+                        observacoes?: string | null;
                       };
                       return {
                         id: String(agendamento.id),
@@ -973,6 +997,7 @@ export default function ClientesPetsPage() {
                         plano: agendamento.plano || "Avulso",
                         ciclo: agendamento.ciclo,
                         numeroBanho: agendamento.numero_banho,
+                        observacoes: registro.observacoes || "",
                       };
                     });
 
@@ -2561,7 +2586,7 @@ export default function ClientesPetsPage() {
                       </div>
                     </div>
 
-                    <div className="grid gap-4 p-5 md:grid-cols-2">
+                    <div className="grid gap-4 p-5">
                       {cliente.pets.length ===
                         0 ? (
                         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500 md:col-span-2">
@@ -2574,8 +2599,10 @@ export default function ClientesPetsPage() {
                               key={
                                 pet.id
                               }
-                              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                              className="rounded-2xl border border-slate-200 bg-slate-50 p-5"
                             >
+                              <div className="grid gap-5 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.4fr)]">
+                                <div className="min-w-0">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-center gap-3">
                                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-xl shadow-sm">
@@ -2633,32 +2660,6 @@ export default function ClientesPetsPage() {
                                 </div>
                               </div>
 
-                              <details className="mt-2 rounded-xl border border-emerald-100 bg-white p-3 text-xs">
-                                <summary className="cursor-pointer font-semibold text-emerald-800">
-                                  Histórico de banhos ({pet.historicoBanhos?.length ?? 0})
-                                </summary>
-                                {(pet.historicoBanhos?.length ?? 0) === 0 ? (
-                                  <p className="mt-3 text-slate-500">
-                                    Nenhum banho concluído registrado.
-                                  </p>
-                                ) : (
-                                  <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
-                                    {pet.historicoBanhos?.map((banho) => (
-                                      <div key={banho.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                        <p className="font-semibold text-slate-800">
-                                          {formatarData(banho.data)} — {banho.servico}
-                                        </p>
-                                        <p className="mt-1 text-slate-500">
-                                          {banho.plano}
-                                          {banho.ciclo ? ` · Ciclo ${banho.ciclo}` : ""}
-                                          {banho.numeroBanho ? ` · Banho ${banho.numeroBanho}` : ""}
-                                        </p>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </details>
-
                               <div className="mt-2 rounded-xl bg-white p-3 text-xs">
                                 <p className="text-slate-400">
                                   Serviço
@@ -2698,6 +2699,72 @@ export default function ClientesPetsPage() {
 
                                 </div>
                               )}
+                                </div>
+                                <section className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4">
+                                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                    <h4 className="text-sm font-bold text-emerald-800">
+                                      Histórico de banhos
+                                    </h4>
+                                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                                      {pet.historicoBanhos?.length ?? 0} realizados
+                                    </span>
+                                  </div>
+                                  {(pet.historicoBanhos?.length ?? 0) === 0 ? (
+                                    <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+                                      Nenhum banho concluído registrado.
+                                    </p>
+                                  ) : (
+                                    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                                      {pet.historicoBanhos?.map((banho) => (
+                                        <div key={banho.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                          <div className="flex flex-wrap items-start justify-between gap-2">
+                                            <div>
+                                              <p className="text-sm font-bold text-slate-800">
+                                                {formatarData(banho.data)}
+                                              </p>
+                                              <p className="mt-1 text-xs text-slate-600">{banho.servico}</p>
+                                              <p className="mt-1 text-xs text-slate-500">
+                                                {banho.plano}
+                                                {banho.ciclo ? ` · Ciclo ${banho.ciclo}` : ""}
+                                                {banho.numeroBanho ? ` · Banho ${banho.numeroBanho}` : ""}
+                                              </p>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAnotacaoEditando(banho.id);
+                                                setTextoAnotacao(banho.observacoes);
+                                              }}
+                                              className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                                            >
+                                              {banho.observacoes ? "Editar anotação" : "+ Anotação"}
+                                            </button>
+                                          </div>
+                                          {anotacaoEditando === banho.id ? (
+                                            <div className="mt-3 space-y-2">
+                                              <textarea
+                                                value={textoAnotacao}
+                                                onChange={(evento) => setTextoAnotacao(evento.target.value)}
+                                                rows={2}
+                                                placeholder="Escreva uma observação sobre este banho..."
+                                                className="w-full resize-y rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-800 outline-none focus:border-emerald-500"
+                                              />
+                                              <div className="flex justify-end gap-2">
+                                                <button type="button" onClick={() => setAnotacaoEditando(null)} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600">Cancelar</button>
+                                                <button type="button" disabled={salvandoAnotacao} onClick={() => void salvarAnotacaoBanho(banho.id)} className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">
+                                                  {salvandoAnotacao ? "Salvando..." : "Salvar"}
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ) : banho.observacoes ? (
+                                            <p className="mt-2 whitespace-pre-wrap rounded-lg bg-white p-2 text-xs text-slate-700">{banho.observacoes}</p>
+                                          ) : null}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </section>
+                              </div>
                             </div>
                           )
                         )
