@@ -30,7 +30,17 @@ type PlanoResumo = {
   renovacaoDisponivel: boolean;
 };
 
+type BanhoHistorico = {
+  id: string;
+  data: string;
+  servico: string;
+  plano: string;
+  ciclo: number | null;
+  numeroBanho: number | null;
+};
+
 type Pet = {
+  historicoBanhos?: BanhoHistorico[];
   id: string;
   nome: string;
   raca: string;
@@ -946,9 +956,30 @@ export default function ClientesPetsPage() {
                       agendamentos
                     );
 
+                  const historicoBanhos: BanhoHistorico[] = agendamentos
+                    .filter((agendamento) =>
+                      String(agendamento.pet_id) === String(pet.id) &&
+                      statusConcluido(agendamento.status)
+                    )
+                    .sort((a, b) => String(b.data).localeCompare(String(a.data)))
+                    .map((agendamento) => {
+                      const registro = agendamento as AgendamentoBanco & {
+                        servico_nome?: string | null;
+                      };
+                      return {
+                        id: String(agendamento.id),
+                        data: agendamento.data,
+                        servico: registro.servico_nome || "Banho",
+                        plano: agendamento.plano || "Avulso",
+                        ciclo: agendamento.ciclo,
+                        numeroBanho: agendamento.numero_banho,
+                      };
+                    });
+
                   return {
                     ...pet,
                     plano,
+                    historicoBanhos,
                   };
                 });
 
@@ -2601,6 +2632,32 @@ export default function ClientesPetsPage() {
                                   </p>
                                 </div>
                               </div>
+
+                              <details className="mt-2 rounded-xl border border-emerald-100 bg-white p-3 text-xs">
+                                <summary className="cursor-pointer font-semibold text-emerald-800">
+                                  Histórico de banhos ({pet.historicoBanhos?.length ?? 0})
+                                </summary>
+                                {(pet.historicoBanhos?.length ?? 0) === 0 ? (
+                                  <p className="mt-3 text-slate-500">
+                                    Nenhum banho concluído registrado.
+                                  </p>
+                                ) : (
+                                  <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
+                                    {pet.historicoBanhos?.map((banho) => (
+                                      <div key={banho.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                                        <p className="font-semibold text-slate-800">
+                                          {formatarData(banho.data)} — {banho.servico}
+                                        </p>
+                                        <p className="mt-1 text-slate-500">
+                                          {banho.plano}
+                                          {banho.ciclo ? ` · Ciclo ${banho.ciclo}` : ""}
+                                          {banho.numeroBanho ? ` · Banho ${banho.numeroBanho}` : ""}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </details>
 
                               <div className="mt-2 rounded-xl bg-white p-3 text-xs">
                                 <p className="text-slate-400">
