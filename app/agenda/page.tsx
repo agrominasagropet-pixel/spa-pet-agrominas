@@ -1042,10 +1042,10 @@ export default function AgendaPage() {
           pagamento_status: "Pendente", forma_pagamento_plano: null
         }));
       });
-      const { data: inseridos, error: erroInsercao } = await supabase
-        .from("agendamentos").insert(registros).select("id");
+      const { data: quantidadeInserida, error: erroInsercao } = await supabase
+        .rpc("renovar_ciclos_agrominas", { p_registros: registros, p_atualizacao_pet: null });
       if (erroInsercao) throw erroInsercao;
-      if (inseridos?.length !== registros.length)
+      if (Number(quantidadeInserida) !== registros.length)
         throw new Error("A gravação não foi confirmada integralmente. Confira a agenda.");
       const tutor = tutorRenovacao;
       setRenovacao(null);

@@ -1330,6 +1330,70 @@ export default function ClientesPetsPage() {
     );
   }
 
+  function montarAgendamentosDoPetParaRenovacao(
+    petId: string, pet: Pet, ciclo: number, dataInicioForcada: string
+  ) {
+    const dataInicio = dataInicioForcada;
+    const frequencia = pet.servicos.frequencia;
+    const quantidade = quantidadeBanhosPorCiclo(frequencia);
+    const intervalo = intervaloEntreBanhos(frequencia);
+    const valorFinal = valorNumerico(pet.servicos.valorTotal);
+    const agendamentos =
+      Array.from(
+        {
+          length: quantidade,
+        },
+        (_, index) => ({
+          pet_id: petId,
+          servico_id: null,
+
+          data: adicionarDias(
+            dataInicio,
+            index *
+              intervalo
+          ),
+
+          horario:
+            horarioDoTurno(
+              pet.servicos
+                .turno
+            ),
+
+          status:
+            "Agendado",
+
+          observacoes:
+            pet.observacoes ||
+            null,
+
+          valor_total:
+            valorFinal,
+
+          servico_nome:
+            [
+              index > 0 && frequencia !== "Avulso" &&
+              /banho\s*(?:\+|com)\s*tosa\s*higi[eê]nica/i.test(pet.servicos.banhoTosa)
+                ? "Banho" : pet.servicos.banhoTosa,
+              ...pet.servicos.tosas,
+              ...pet.servicos.adicionais,
+            ].filter(Boolean).join(" + ") || null,
+
+          plano:
+            frequencia,
+
+          numero_banho:
+            index + 1,
+
+          ciclo,
+
+          pagamento_status: "Pendente",
+          forma_pagamento_plano: null,
+        })
+      );
+
+    return agendamentos;
+  }
+
   async function criarAgendamentosDoPet(
     petId: string,
     pet: Pet,
@@ -2298,44 +2362,23 @@ export default function ClientesPetsPage() {
       /*
        * SOMENTE O NOVO CICLO É CRIADO.
        */
-      await criarAgendamentosDoPet(
-        pet.id,
-        novaPet,
-        novoCiclo,
-        dataInicioRenovacao
+      const registrosRenovacao = montarAgendamentosDoPetParaRenovacao(
+        pet.id, novaPet, novoCiclo, dataInicioRenovacao
       );
-
-      /*
-       * Atualiza somente a configuração
-       * atual do pet.
-       */
-      const {
-        error: erroPet,
-      } = await supabase
-        .from("pets")
-        .update({
-          frequencia:
-            frequenciaRenovacao,
-
-          data_inicio:
-            dataInicioRenovacao,
-
-          turno:
-            turnoRenovacao,
-
-          valor_total:
-            valorNumerico(
-              valorRenovacao
-            ),
-        })
-        .eq(
-          "id",
-          pet.id
-        );
-
-      if (erroPet) {
-        throw erroPet;
-      }
+      const { data: quantidadeInserida, error: erroRenovacao } = await supabase
+        .rpc("renovar_ciclos_agrominas", {
+          p_registros: registrosRenovacao,
+          p_atualizacao_pet: {
+            pet_id: pet.id,
+            frequencia: frequenciaRenovacao,
+            data_inicio: dataInicioRenovacao,
+            turno: turnoRenovacao,
+            valor_total: valorNumerico(valorRenovacao),
+          },
+        });
+      if (erroRenovacao) throw erroRenovacao;
+      if (Number(quantidadeInserida) !== registrosRenovacao.length)
+        throw new Error("A renovação não foi confirmada integralmente.");
 
       setModalPlanoPet(
         null
