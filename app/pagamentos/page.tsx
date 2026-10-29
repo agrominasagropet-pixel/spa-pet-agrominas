@@ -3180,7 +3180,7 @@ export default function PagamentosPage() {
 
 
 
-          {/\* CABEÇALHO \*/}
+          {/* CABEÇALHO */}
 
 
 
@@ -3296,7 +3296,7 @@ export default function PagamentosPage() {
 
 
 
-          {/\* RESUMO \*/}
+          {/* RESUMO */}
 
 
 
@@ -3408,7 +3408,7 @@ export default function PagamentosPage() {
 
 
 
-          {/\* PESQUISA \*/}
+          {/* PESQUISA */}
 
 
 
@@ -3516,7 +3516,7 @@ export default function PagamentosPage() {
 
 
 
-          {/\* ABAS \*/}
+          {/* ABAS */}
 
 
 
@@ -3596,7 +3596,7 @@ export default function PagamentosPage() {
 
 
 
-          {/\* LISTA \*/}
+          {/* LISTA */}
 
 
 
@@ -4154,7 +4154,7 @@ export default function PagamentosPage() {
 
 
 
-      {/\* JANELA DE PAGAMENTO \*/}
+      {/* JANELA DE PAGAMENTO */}
 
 
 
