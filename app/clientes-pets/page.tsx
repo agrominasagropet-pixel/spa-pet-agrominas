@@ -197,7 +197,26 @@ function criarPet(id: string): Pet {
   };
 }
 
-function converterPetDoBanco(pet: any): Pet {
+type RegistroBanco = {
+  id?: string;
+  nome?: string;
+  frequencia?: string;
+  peso?: string | number | null;
+  tosas?: string[];
+  adicionais?: string[];
+  "raça"?: string;
+  raca?: string;
+  sexo?: string;
+  data_nascimento?: string;
+  observacoes?: string;
+  banho_tosa?: string;
+  data_inicio?: string;
+  turno?: string;
+  valor_total?: string | number | null;
+  cliente_id?: string;
+};
+
+function converterPetDoBanco(pet: RegistroBanco): Pet {
   const frequencia: Frequencia =
     pet?.frequencia === "Mensal"
       ? "Mensal"
@@ -726,17 +745,15 @@ export default function ClientesPetsPage() {
   // Consulta automaticamente ao completar 11 dígitos, sem exigir outros campos.
   useEffect(() => {
     const cpfNumeros = cpf.replace(/\D/g, "");
-    setClienteCpfExistente(null);
-    setErroConsultaCpf(false);
-
     if (!modalCadastro || cpfNumeros.length !== 11) {
-      setConsultandoCpf(false);
       return;
     }
 
     let cancelado = false;
-    setConsultandoCpf(true);
     const temporizador = setTimeout(async () => {
+      setClienteCpfExistente(null);
+      setErroConsultaCpf(false);
+      setConsultandoCpf(true);
       try {
         // Busca no banco, inclusive registros antigos com CPF pontuado.
         const { data, error } = await supabase
@@ -872,7 +889,7 @@ export default function ClientesPetsPage() {
       /*
        * PETS
        */
-      let petsBanco: any[] = [];
+      let petsBanco: RegistroBanco[] = [];
 
       const {
         data: petsData,
@@ -948,7 +965,7 @@ export default function ClientesPetsPage() {
        */
       const clientesFormatados: Cliente[] =
         (clientesBanco || []).map(
-          (cliente: any) => {
+          (cliente: { id?: string; nome?: string; cpf?: string; contato?: string; whatsapp?: string; telefone?: string; cep?: string; endereco?: string; rua?: string; numero?: string; bairro?: string; observacoes?: string }) => {
             const petsDoCliente =
               petsConvertidos
                 .filter((pet) => {
@@ -1055,7 +1072,7 @@ export default function ClientesPetsPage() {
       );
 
       return clientesFormatados;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(
         "ERRO COMPLETO AO CARREGAR CLIENTES:",
         error
@@ -1063,7 +1080,7 @@ export default function ClientesPetsPage() {
 
       alert(
         `Erro ao carregar clientes: ${
-          error?.message ||
+          (error instanceof Error ? error.message : null) ||
           "erro desconhecido"
         }`
       );
@@ -1077,7 +1094,8 @@ export default function ClientesPetsPage() {
   }
 
   useEffect(() => {
-    carregarClientes();
+    const temporizador = window.setTimeout(() => { void carregarClientes(); }, 0);
+    return () => window.clearTimeout(temporizador);
   }, []);
 
   function limparFormulario() {
@@ -1092,7 +1110,7 @@ export default function ClientesPetsPage() {
 
     setPets([
       criarPet(
-        `novo-${Date.now()}`
+        `novo-${crypto.randomUUID()}`
       ),
     ]);
 
@@ -1151,7 +1169,7 @@ export default function ClientesPetsPage() {
           )
         : [
             criarPet(
-              `novo-${Date.now()}`
+              `novo-${crypto.randomUUID()}`
             ),
           ]
     );
@@ -1296,7 +1314,7 @@ export default function ClientesPetsPage() {
     setPets((lista) => [
       ...lista,
       criarPet(
-        `novo-${Date.now()}`
+        `novo-${crypto.randomUUID()}`
       ),
     ]);
   }
@@ -2081,7 +2099,7 @@ export default function ClientesPetsPage() {
       alert(
         "Cliente e pets cadastrados com sucesso!"
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(
         "ERRO AO SALVAR:",
         error
@@ -2089,7 +2107,7 @@ export default function ClientesPetsPage() {
 
       alert(
         `Não foi possível salvar o cadastro: ${
-          error?.message ||
+          (error instanceof Error ? error.message : null) ||
           "erro desconhecido"
         }`
       );
@@ -2177,12 +2195,12 @@ export default function ClientesPetsPage() {
       alert(
         "Cadastro excluído com sucesso."
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
 
       alert(
         `Não foi possível excluir o cadastro: ${
-          error?.message ||
+          (error instanceof Error ? error.message : null) ||
           "erro desconhecido"
         }`
       );
@@ -2323,7 +2341,7 @@ export default function ClientesPetsPage() {
         ).reduce(
           (
             maior: number,
-            item: any
+            item: { ciclo?: number | null }
           ) =>
             Math.max(
               maior,
@@ -2393,7 +2411,7 @@ export default function ClientesPetsPage() {
           frequenciaRenovacao
         )} banho(s) foram adicionados à agenda.`
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(
         "ERRO AO RENOVAR:",
         error
@@ -2401,7 +2419,7 @@ export default function ClientesPetsPage() {
 
       alert(
         `Não foi possível renovar o plano: ${
-          error?.message ||
+          (error instanceof Error ? error.message : null) ||
           "erro desconhecido"
         }`
       );

@@ -1,4 +1,3 @@
-
 "use client";
 
 import Image from "next/image";
@@ -92,10 +91,6 @@ export default function MenuLateral() {
       subscription.unsubscribe();
     };
   }, []);
-
-  useEffect(() => {
-    setMenuAberto(false);
-  }, [pathname]);
 
   useEffect(() => {
     if (!menuAberto) return;

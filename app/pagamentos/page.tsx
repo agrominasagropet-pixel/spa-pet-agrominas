@@ -1088,7 +1088,23 @@ export default function PagamentosPage() {
 
 
 
-    if (acesso === "admin") void carregar();
+    if (acesso !== "admin") return;
+
+
+
+    const temporizador = window.setTimeout(() => {
+
+
+
+      void carregar();
+
+
+
+    }, 0);
+
+
+
+    return () => window.clearTimeout(temporizador);
 
 
 

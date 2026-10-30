@@ -750,7 +750,7 @@ export default function AgendaPage() {
       );
       const listaPagamentos = (pagamentosR.data || []) as PagamentoPlano[];
 
-      const petsFormatados: Pet[] = listaPetsBanco.map((pet: any) => {
+      const petsFormatados: Pet[] = listaPetsBanco.map((pet) => {
         const cliente = listaClientes.find(
           (item) => item.id === pet.cliente_id
         );
@@ -1071,9 +1071,9 @@ export default function AgendaPage() {
         ].join("\n");
         abrirMensagemWhatsApp(tutor.whatsapp, mensagem);
       }
-    } catch (erro: any) {
+    } catch (erro: unknown) {
       console.error("Erro ao renovar ciclos:", erro);
-      alert(erro?.message || "Não foi possível renovar os ciclos.");
+      alert((erro instanceof Error ? erro.message : null) || "Não foi possível renovar os ciclos.");
       await carregarDados();
     } finally { setSalvandoRenovacao(false); }
   }
@@ -1140,9 +1140,9 @@ export default function AgendaPage() {
       setAgendamentos(anteriores => anteriores.map(a =>
         conjunto.has(a.id) ? { ...a, valor_total: valor } : a));
       return true;
-    } catch (erro: any) {
+    } catch (erro: unknown) {
       console.error("Erro ao corrigir valor:", erro);
-      alert(erro?.message || "Não foi possível corrigir o valor.");
+      alert((erro instanceof Error ? erro.message : null) || "Não foi possível corrigir o valor.");
       await carregarDados();
       return false;
     } finally { setSalvandoValor(false); }
@@ -1521,12 +1521,12 @@ export default function AgendaPage() {
           `Pacote ${frequenciaAgendamento.toLowerCase()} criado com sucesso! ${quantidade} agendamentos foram registrados.`
         );
       }
-    } catch (erro: any) {
+    } catch (erro: unknown) {
       console.error("Erro ao salvar agendamento:", erro);
 
       alert(
         "Não foi possível salvar o agendamento.\n\n" +
-          (erro?.message || "Verifique os dados e tente novamente.")
+          ((erro instanceof Error ? erro.message : null) || "Verifique os dados e tente novamente.")
       );
     } finally {
       setSalvando(false);
@@ -1619,9 +1619,9 @@ export default function AgendaPage() {
       setAgendamentoSelecionado(null);
       await carregarDados();
       alert("Comparecimento desfeito. O banho voltou para Agendado.");
-    } catch (erro: any) {
+    } catch (erro: unknown) {
       console.error("Erro ao desfazer comparecimento:", erro);
-      alert(erro?.message || "Não foi possível desfazer o comparecimento.");
+      alert((erro instanceof Error ? erro.message : null) || "Não foi possível desfazer o comparecimento.");
       await carregarDados();
     } finally {
       setSalvando(false);
@@ -1676,9 +1676,9 @@ export default function AgendaPage() {
         valor: ehAdmin ? (ag.valor_total ?? 0) : null,
         forma_pagamento: null,
       }]);
-    } catch (erro: any) {
+    } catch (erro: unknown) {
       console.error("Erro ao concluir atendimento:", erro);
-      alert(erro?.message || "Não foi possível concluir o atendimento.");
+      alert((erro instanceof Error ? erro.message : null) || "Não foi possível concluir o atendimento.");
     } finally {
       registroAtendimentoEmAndamento.current = false;
       setSalvando(false);

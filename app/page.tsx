@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -193,88 +192,88 @@ export default function Home() {
   const [pesquisaRenovacao, setPesquisaRenovacao] = useState("");
 
   useEffect(() => {
-    carregarDados();
-  }, []);
+    async function carregarDados() {
+      setCarregando(true);
 
-  async function carregarDados() {
-    setCarregando(true);
+      try {
+        const [
+          respostaPets,
+          respostaClientes,
+          respostaAgendamentos,
+          respostaAtendimentos,
+        ] = await Promise.all([
+          supabase
+            .from("pets")
+            .select("id, nome, cliente_id")
+            .order("nome", { ascending: true }),
 
-    try {
-      const [
-        respostaPets,
-        respostaClientes,
-        respostaAgendamentos,
-        respostaAtendimentos,
-      ] = await Promise.all([
-        supabase
-          .from("pets")
-          .select("id, nome, cliente_id")
-          .order("nome", { ascending: true }),
+          supabase
+            .from("clientes")
+            .select("id, nome, whatsapp, telefone")
+            .order("nome", { ascending: true }),
 
-        supabase
-          .from("clientes")
-          .select("id, nome, whatsapp, telefone")
-          .order("nome", { ascending: true }),
+          supabase
+            .from("agendamentos")
+            .select(
+              "id, pet_id, data, horario, status, servico_nome, valor_total"
+            )
+            .order("data", { ascending: true })
+            .order("horario", { ascending: true }),
 
-        supabase
-          .from("agendamentos")
-          .select(
-            "id, pet_id, data, horario, status, servico_nome, valor_total"
-          )
-          .order("data", { ascending: true })
-          .order("horario", { ascending: true }),
+          supabase
+            .from("atendimentos")
+            .select(
+              "id, agendamento_id, pet_id, data, valor, forma_pagamento"
+            )
+            .order("data", { ascending: false }),
+        ]);
 
-        supabase
-          .from("atendimentos")
-          .select(
-            "id, agendamento_id, pet_id, data, valor, forma_pagamento"
-          )
-          .order("data", { ascending: false }),
-      ]);
+        if (respostaPets.error) {
+          console.error("Erro ao carregar pets:", respostaPets.error);
+        }
 
-      if (respostaPets.error) {
-        console.error("Erro ao carregar pets:", respostaPets.error);
+        if (respostaClientes.error) {
+          console.error("Erro ao carregar clientes:", respostaClientes.error);
+        }
+
+        if (respostaAgendamentos.error) {
+          console.error(
+            "Erro ao carregar agendamentos:",
+            respostaAgendamentos.error
+          );
+        }
+
+        if (respostaAtendimentos.error) {
+          console.error(
+            "Erro ao carregar atendimentos:",
+            respostaAtendimentos.error
+          );
+        }
+
+        if (respostaPets.data) {
+          setPets(respostaPets.data as Pet[]);
+        }
+
+        if (respostaClientes.data) {
+          setClientes(respostaClientes.data as Cliente[]);
+        }
+
+        if (respostaAgendamentos.data) {
+          setAgendamentos(respostaAgendamentos.data as Agendamento[]);
+        }
+
+        if (respostaAtendimentos.data) {
+          setAtendimentos(respostaAtendimentos.data as Atendimento[]);
+        }
+      } catch (erro) {
+        console.error("Erro inesperado ao carregar o painel:", erro);
+      } finally {
+        setCarregando(false);
       }
-
-      if (respostaClientes.error) {
-        console.error("Erro ao carregar clientes:", respostaClientes.error);
-      }
-
-      if (respostaAgendamentos.error) {
-        console.error(
-          "Erro ao carregar agendamentos:",
-          respostaAgendamentos.error
-        );
-      }
-
-      if (respostaAtendimentos.error) {
-        console.error(
-          "Erro ao carregar atendimentos:",
-          respostaAtendimentos.error
-        );
-      }
-
-      if (respostaPets.data) {
-        setPets(respostaPets.data as Pet[]);
-      }
-
-      if (respostaClientes.data) {
-        setClientes(respostaClientes.data as Cliente[]);
-      }
-
-      if (respostaAgendamentos.data) {
-        setAgendamentos(respostaAgendamentos.data as Agendamento[]);
-      }
-
-      if (respostaAtendimentos.data) {
-        setAtendimentos(respostaAtendimentos.data as Atendimento[]);
-      }
-    } catch (erro) {
-      console.error("Erro inesperado ao carregar o painel:", erro);
-    } finally {
-      setCarregando(false);
     }
-  }
+
+    void carregarDados();
+  }, []);
 
   const hoje = obterDataLocal();
 
@@ -958,3 +957,4 @@ export default function Home() {
     </main>
   );
 }
+

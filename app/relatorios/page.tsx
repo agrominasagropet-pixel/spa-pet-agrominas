@@ -292,13 +292,21 @@ export default function RelatoriosPage() {
 
   }, [acesso]);
 
-  useEffect(() => { if (acesso === "admin") void carregar(); }, [carregar, acesso]);
+  useEffect(() => {
+    if (acesso !== "admin") return;
 
-  useEffect(() => { setPagina(1); }, [dataInicio, dataFim, aba, busca]);
+    const temporizador = window.setTimeout(() => {
+      void carregar();
+    }, 0);
+
+    return () => window.clearTimeout(temporizador);
+  }, [carregar, acesso]);
+
+  
 
   const selecionarPeriodo = (p: string) => {
 
-    const fim = hoje(); setPeriodo(p); setDataFim(fim);
+    const fim = hoje(); setPeriodo(p); setDataFim(fim); setPagina(1);
 
     setDataInicio(p === "hoje" ? fim : p === "7dias" ? deslocarDias(-6) : p === "30dias" ? deslocarDias(-29) : inicioMes());
 
@@ -625,7 +633,7 @@ export default function RelatoriosPage() {
 
             <span className="text-[10px] font-semibold text-gray-600">{tipo === "dinheiro" ? (valor >= 1000 ? `${(valor/1000).toFixed(1)}k` : valor.toFixed(0)) : valor}</span>
 
-            <div className="w-full max-w-9 rounded-t-md bg-emerald-600" style={{height: `${Math.max(5, (valor / maior) * 130)}px`}} />
+            <div className="w-full max-w-9 shrink-0 rounded-t-md bg-emerald-600" style={{ height: `${Math.max(5, (valor / maior) * 130)}px`, minHeight: "5px", backgroundColor: "#059669" }} />
 
             <span className="whitespace-nowrap text-[10px] text-gray-500">{data.slice(8,10)}/{data.slice(5,7)}</span>
 
@@ -667,7 +675,7 @@ export default function RelatoriosPage() {
 
             <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">Período de análise</h2><div className="flex flex-wrap gap-2">{[["hoje", "Hoje"], ["7dias", "7 dias"], ["30dias", "30 dias"], ["mes", "Este mês"]].map(([v, nome]) => <button key={v} type="button" onClick={() => selecionarPeriodo(v)} className={`${botao} ${periodo === v ? "bg-emerald-700 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>{nome}</button>)}</div></div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Data inicial<input type="date" value={dataInicio} onChange={e => { setDataInicio(e.target.value); setPeriodo("personalizado"); }} className="mt-1 block w-full rounded-xl border border-gray-200 p-3" /></label><label className="text-sm font-medium">Data final<input type="date" value={dataFim} onChange={e => { setDataFim(e.target.value); setPeriodo("personalizado"); }} className="mt-1 block w-full rounded-xl border border-gray-200 p-3" /></label></div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Data inicial<input type="date" value={dataInicio} onChange={e => { setDataInicio(e.target.value); setPeriodo("personalizado"); setPagina(1); }} className="mt-1 block w-full rounded-xl border border-gray-200 p-3" /></label><label className="text-sm font-medium">Data final<input type="date" value={dataFim} onChange={e => { setDataFim(e.target.value); setPeriodo("personalizado"); setPagina(1); }} className="mt-1 block w-full rounded-xl border border-gray-200 p-3" /></label></div>
 
             {!valido && <p className="mt-3 text-sm font-medium text-red-700">Selecione um período válido: a data inicial deve ser anterior ou igual à final.</p>}
 
@@ -745,9 +753,9 @@ export default function RelatoriosPage() {
 
               <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">Detalhamento</h2><p className="text-sm text-gray-500">Consulte e exporte os registros do período.</p></div><button type="button" onClick={exportar} className={`${botao} bg-emerald-700 text-white hover:bg-emerald-800`}>↓ Exportar CSV</button></div>
 
-              <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => setAba("financeiro")} className={`${botao} ${aba === "financeiro" ? "bg-emerald-700 text-white" : "bg-gray-100 text-gray-700"}`}>Financeiro</button><button type="button" onClick={() => setAba("operacional")} className={`${botao} ${aba === "operacional" ? "bg-emerald-700 text-white" : "bg-gray-100 text-gray-700"}`}>Banhos realizados</button></div>
+              <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => { setAba("financeiro"); setPagina(1); }} className={`${botao} ${aba === "financeiro" ? "bg-emerald-700 text-white" : "bg-gray-100 text-gray-700"}`}>Financeiro</button><button type="button" onClick={() => { setAba("operacional"); setPagina(1); }} className={`${botao} ${aba === "operacional" ? "bg-emerald-700 text-white" : "bg-gray-100 text-gray-700"}`}>Banhos realizados</button></div>
 
-              <input type="search" placeholder="Buscar por tutor, pet ou serviço" value={busca} onChange={e => setBusca(e.target.value)} className="mt-4 w-full rounded-xl border border-gray-200 p-3 text-sm" />
+              <input type="search" placeholder="Buscar por tutor, pet ou serviço" value={busca} onChange={e => { setBusca(e.target.value); setPagina(1); }} className="mt-4 w-full rounded-xl border border-gray-200 p-3 text-sm" />
 
               <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[660px] text-left text-sm"><thead><tr className="border-b text-gray-500"><th className="py-3 pr-3">Data</th><th className="py-3 pr-3">Tutor / Pet</th><th className="py-3 pr-3">{aba === "financeiro" ? "Recebimento" : "Serviços / Plano"}</th><th className="py-3 pr-3">{aba === "financeiro" ? "Forma" : "Tipo"}</th>{aba === "financeiro" && <th className="py-3 text-right">Valor</th>}</tr></thead><tbody>{exibidos.map(r => <tr key={r.id} className="border-b align-top last:border-0"><td className="py-3 pr-3 whitespace-nowrap">{dataBR(r.data)}</td><td className="py-3 pr-3"><strong>{r.pet}</strong><p className="text-xs text-gray-500">{r.tutor}</p></td>{"descricao" in r ? <><td className="py-3 pr-3">{r.descricao}{r.dataAproximada && <p className="text-xs text-amber-700">Data provisória</p>}</td><td className="py-3 pr-3">{r.forma}</td><td className="py-3 text-right font-semibold">{moeda(r.valor)}</td></> : <><td className="py-3 pr-3">{r.servicos.join(", ")}</td><td className="py-3 pr-3">{r.plano}</td></>}</tr>)}</tbody></table>{!registros.length && <p className="py-6 text-sm text-gray-500">Nenhum registro encontrado.</p>}</div>
 
