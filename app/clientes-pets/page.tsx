@@ -40,7 +40,16 @@ type BanhoHistorico = {
   observacoes: string;
 };
 
+type BanhoCiclo = {
+  id: string;
+  data: string;
+  numeroBanho: number | null;
+  status: string;
+};
+
 type Pet = {
+  banhosCiclo?: BanhoCiclo[];
+  cicloBanhos?: number | null;
   historicoBanhos?: BanhoHistorico[];
   id: string;
   nome: string;
@@ -472,6 +481,51 @@ function statusConcluido(
     valor.includes("finaliz") ||
     valor.includes("realiz") ||
     valor.includes("pronto")
+  );
+}
+
+function statusBanhoCiclo(status: string) {
+  const texto = status.trim().toLocaleLowerCase("pt-BR");
+  if (texto.includes("cancel")) return "Cancelado";
+  if (statusConcluido(status) || texto.includes("compareceu")) return "Realizado";
+  return "Agendado";
+}
+
+function DatasBanhosCiclo({ pet }: { pet: Pet }) {
+  if (!pet.banhosCiclo?.length) return null;
+
+  return (
+    <section className="mt-3 rounded-xl border border-emerald-200 bg-white p-4">
+      <h4 className="text-sm font-bold text-emerald-800">
+        Banhos do ciclo {pet.cicloBanhos}
+      </h4>
+      <p className="mt-1 text-xs text-slate-500">
+        Datas registradas na agenda, atualizadas após renovação ou reagendamento.
+      </p>
+      <div className="mt-3 space-y-2">
+        {pet.banhosCiclo.map((banho, index) => {
+          const situacao = statusBanhoCiclo(banho.status);
+          return (
+            <div key={banho.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {banho.numeroBanho || index + 1}º banho · {formatarData(banho.data)}
+                </p>
+              </div>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                situacao === "Realizado"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : situacao === "Cancelado"
+                  ? "bg-red-100 text-red-700"
+                  : "bg-blue-50 text-blue-700"
+              }`}>
+                {situacao}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1018,10 +1072,37 @@ export default function ClientesPetsPage() {
                       };
                     });
 
+                  // Mostra o ciclo mais recente da mesma frequência do pet,
+                  // usando as datas gravadas na Agenda (não datas calculadas).
+                  const agendamentosPlano = agendamentos.filter((item) =>
+                    String(item.pet_id) === String(pet.id) &&
+                    String(item.plano || "Avulso") === pet.servicos.frequencia
+                  );
+                  const cicloBanhos = agendamentosPlano.reduce(
+                    (maior, item) => Math.max(maior, Number(item.ciclo || 1)),
+                    0
+                  );
+                  const banhosCiclo: BanhoCiclo[] = cicloBanhos
+                    ? agendamentosPlano
+                        .filter((item) => Number(item.ciclo || 1) === cicloBanhos)
+                        .sort((a, b) =>
+                          Number(a.numero_banho || 0) - Number(b.numero_banho || 0) ||
+                          String(a.data).localeCompare(String(b.data))
+                        )
+                        .map((item) => ({
+                          id: String(item.id),
+                          data: item.data,
+                          numeroBanho: item.numero_banho,
+                          status: item.status || "Agendado",
+                        }))
+                    : [];
+
                   return {
                     ...pet,
                     plano,
                     historicoBanhos,
+                    cicloBanhos: cicloBanhos || null,
+                    banhosCiclo,
                   };
                 });
 
@@ -2760,6 +2841,7 @@ export default function ClientesPetsPage() {
 
                                 </div>
                               )}
+                                  <DatasBanhosCiclo pet={pet} />
                                 </div>
                                 <section className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4">
                                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -4049,6 +4131,8 @@ export default function ClientesPetsPage() {
                           </div>
                         )}
                       </div>
+
+                      <DatasBanhosCiclo pet={pet} />
 
                       <div className="mt-5 grid gap-3 md:grid-cols-3">
                         <div className="rounded-xl bg-slate-50 p-4">
