@@ -2841,8 +2841,8 @@ export default function ClientesPetsPage() {
 
                                 </div>
                               )}
-                                  <DatasBanhosCiclo pet={pet} />
                                 </div>
+                                <div className="min-w-0 space-y-3">
                                 <section className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4">
                                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                                     <h4 className="text-sm font-bold text-emerald-800">
@@ -2907,6 +2907,8 @@ export default function ClientesPetsPage() {
                                     </div>
                                   )}
                                 </section>
+                                  <DatasBanhosCiclo pet={pet} />
+                                </div>
                               </div>
                             </div>
                           )
