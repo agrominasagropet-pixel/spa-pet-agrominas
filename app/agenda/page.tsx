@@ -2,6 +2,9 @@
 
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { associarDadosAgenda, CAMPOS_PETS_AGENDA, confirmarLeituraAgenda, ErroLeituraAgenda } from "@/lib/agenda-dados";
+import { paginar } from "@/lib/paginacao";
+import { resumirCiclo, resumirAvulso, type ConversaoFinanceira, type ParcelaConversao } from "@/lib/financeiro";
 import MenuLateral from "@/app/components/MenuLateral";
 
 type Turno = "Manhã" | "Tarde";
@@ -19,6 +22,7 @@ type Pet = {
   nome: string;
   cliente_id: string;
   sexo: string | null;
+  raca: string | null;
   whatsapp: string;
   tutorNome: string;
 };
@@ -38,26 +42,6 @@ type Atendimento = {
   valor: number | null;
   forma_pagamento: string | null;
 };
-
-type ExtraAgendamento = {
-  id: string;
-  agendamento_id: string;
-  pet_id: string;
-  servico_id: string | null;
-  nome_servico: string;
-  valor: number;
-  pagamento_status: "Pendente" | "Pago" | "Cancelado";
-  forma_pagamento: string | null;
-  data_pagamento: string | null;
-};
-
-const NOMES_EXTRAS = new Set([
-  "Escovação de dentes", "Corte de unhas", "Lixamento de unhas",
-  "Harmonização facial", "Patinha raspada (botinha)",
-  "Arredondamento de patinha", "Desembolo", "Penteados",
-  "Hidratação - Pequeno e Médio porte",
-  "Hidratação - Grande e Gigante porte", "Tosa completa",
-]);
 
 type PagamentoPlano = {
   id: string;
@@ -90,9 +74,7 @@ type Agendamento = {
 
 // Nomes padronizados apenas na interface; preserva IDs e dados históricos.
 const NOMES_SERVICOS: Record<string, string> = {
-  "Banho Completo": "Banho",
-  "Banho + Tosa": "Banho com Tosa Completa",
-  "Tosa higiênica": "Banho com Tosa Higiênica",
+  "Banho": "Banho Completo",
   "Banho + Tosa Higiênica": "Banho com Tosa Higiênica",
   "Banho + Tosa Completa": "Banho com Tosa Completa",
   "Tosa Máquina": "Tosa na Máquina",
@@ -136,7 +118,7 @@ function formatarDataLocal(data: string) {
 }
 
 function formatarHorario(horario: string | null | undefined) {
-  if (!horario) return "08:30";
+  if (!horario) return "08:00";
 
   const partes = horario.trim().split(":");
 
@@ -179,16 +161,21 @@ function obterArtigoPet(sexo: string | null) {
   return ["fêmea", "femea", "f"].includes(valor) ? "a" : "o";
 }
 
-function ajustarServicoPorBanho(
-  servico: string | null | undefined,
-  plano: string | null | undefined,
-  numeroBanho: number | null | undefined
-) {
+function ajustarServicoPorBanho(servico: string | null | undefined, plano: string | null | undefined, numero: number) {
   const nome = nomeServicoPadronizado(servico);
-  if ((plano === "Mensal" || plano === "Quinzenal") && Number(numeroBanho) > 1) {
+  if ((plano === "Mensal" || plano === "Quinzenal") && numero > 1) {
     return nome.replace(/banho\s*(?:\+|com)\s*tosa\s*higi[eê]nica/gi, "Banho");
   }
   return nome;
+}
+
+function abrirMensagemWhatsApp(numero: string, mensagem: string) {
+  const telefone = normalizarTelefone(numero);
+  if (!telefone) { alert("Tutor sem WhatsApp cadastrado."); return; }
+  const parametros = new URLSearchParams({ phone: telefone, text: mensagem });
+  const janela = window.open(`https://web.whatsapp.com/send/?${parametros.toString()}`, NOME_JANELA_WHATSAPP);
+  if (janela) janela.focus();
+  else alert("Permita pop-ups para abrir o WhatsApp.");
 }
 
 function obterIdentificacaoBanho(agendamento: Agendamento) {
@@ -286,9 +273,9 @@ function abrirWhatsApp(
           "",
           `Temos uma ótima notícia! ${sorriso}`,
           "",
-          `${artigo === "a" ? "A" : "O"} ${nomePet} já está ${artigo === "a" ? "prontinha" : "prontinho"} no SPA PET AGROMINAS. ${cachorro}${coracao}`,
+          `O ${nomePet} já está prontinho no SPA PET AGROMINAS. ${cachorro}${coracao}`,
           "",
-          `O banho e tosa foram concluídos e ${artigo === "a" ? "ela" : "ele"} já pode ser ${artigo === "a" ? "retirada" : "retirado"}.`,
+          "O banho e tosa foram concluídos e ele já pode ser retirado.",
           "",
           `Obrigado pela confiança! ${patas}`,
         ].join("\n");
@@ -308,31 +295,6 @@ function abrirWhatsApp(
   } else {
     alert("O navegador bloqueou a janela do WhatsApp. Permita pop-ups para este site e tente novamente.");
   }
-}
-
-function abrirMensagemWhatsApp(numero: string, mensagem: string) {
-  const telefone = normalizarTelefone(numero);
-  if (!telefone) { alert("Este tutor não possui WhatsApp cadastrado."); return; }
-  const parametros = new URLSearchParams({ phone: telefone, text: mensagem });
-  const janela = window.open(`https://web.whatsapp.com/send/?${parametros.toString()}`, NOME_JANELA_WHATSAPP);
-  if (janela) janela.focus();
-  else alert("Permita pop-ups para abrir o WhatsApp Web.");
-}
-
-function avisarPetsProntos(numero: string, tutor: string, itens: { nome: string; sexo: string | null }[]) {
-  const nomes = itens.map(item => item.nome);
-  const lista = nomes.map(nome => `🐾 ${nome}`).join("\n");
-  const feminino = itens.length === 1 && obterArtigoPet(itens[0].sexo) === "a";
-  const todasFemeas = itens.length > 1 && itens.every(item => obterArtigoPet(item.sexo) === "a");
-  const mensagem = [
-    `Olá, ${tutor}! 🐾`, "",
-    "Temos uma ótima notícia! 😊", "",
-    nomes.length === 1 ? `${feminino ? "A" : "O"} ${nomes[0]} já está ${feminino ? "prontinha" : "prontinho"}! 🐶💚` : `${todasFemeas ? "Suas pets já estão prontinhas" : "Seus pets já estão prontinhos"}! 🐶💚`,
-    nomes.length > 1 ? lista : "", "",
-    "Todos os atendimentos foram concluídos e os pets já estão disponíveis para retirada.", "",
-    "Obrigado pela confiança! 🐾", "SPA PET AGROMINAS"
-  ].filter((linha, i, arr) => linha !== "" || arr[i - 1] !== "").join("\n");
-  abrirMensagemWhatsApp(numero, mensagem);
 }
 
 function abrirWhatsAppGrupo(
@@ -360,7 +322,7 @@ function abrirWhatsAppGrupo(
   const relogio = String.fromCodePoint(0x23F0);
   const sorriso = String.fromCodePoint(0x1F60A);
 
-  const horarioFormatado = formatarHorario(horario || "08:30");
+  const horarioFormatado = formatarHorario(horario || "08:00");
   const listaPets = itens
     .map((item) => `${patas} ${item.petNome} — ${item.servicoNome}`)
     .join("\n");
@@ -406,7 +368,13 @@ type DadosPagamentoComprovante = {
   pago: boolean;
   forma: string | null;
   valor?: number | null;
+  recebido?: number;
+  credito?: number;
+  saldo?: number | null;
+  texto?: string;
 };
+
+type ExtraComprovante = { id: string; agendamento_id?: string; valor: number; pagamento_status: string; nome_servico: string };
 
 type ItemComprovanteGrupo = {
   petNome: string;
@@ -419,7 +387,11 @@ type ItemComprovanteGrupo = {
   tipoPlano: string | null;
   ciclo: number | null;
   petId: string;
-  extras: ExtraAgendamento[];
+  recebido?: number;
+  credito?: number;
+  saldo?: number | null;
+  texto?: string;
+  extras?: ExtraComprovante[];
 };
 
 function valorComprovante(valor: number | null | undefined) {
@@ -442,8 +414,8 @@ function documentoComprovante(conteudo: string, titulo: string) {
       html, body { margin: 0; padding: 0; }
       body { width: 80mm; padding: 5mm 4mm 7mm; color: #000; background: #fff;
              font: 11px/1.45 Arial, Helvetica, sans-serif; overflow-wrap: anywhere; }
-      .logo-impressao { display: block; width: 47mm; max-height: 42mm; height: auto; object-fit: contain; margin: 0 auto 2mm; }
-      .marca { text-align: center; font-size: 15px; font-weight: 900; letter-spacing: .6px; }
+      .marca { text-align: center; font-size: 23px; font-weight: 900; letter-spacing: 1.1px; }
+      .submarca { text-align: center; font-size: 10px; letter-spacing: 1.8px; margin-top: 1px; }
       .documento { text-align: center; font-size: 11px; font-weight: 800; margin: 10px 0; }
       .separador { border: 0; border-top: 1px dashed #000; margin: 10px 0; }
       .linha { display: flex; gap: 5px; margin: 5px 0; align-items: baseline; }
@@ -461,8 +433,8 @@ function documentoComprovante(conteudo: string, titulo: string) {
       .rodape { text-align: center; font-size: 10px; margin-top: 16px; }
       @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style></head><body>
-    <img class="logo-impressao" src="/logo-agrominas-impressao.png" alt="Logo AGROMINAS" />
     <div class="marca">SPA PET AGROMINAS</div>
+    <div class="submarca">BANHO E TOSA</div>
     <hr class="separador" />
     <div class="documento">${escaparHTMLComprovante(titulo)}</div>
     ${conteudo}
@@ -473,42 +445,24 @@ function documentoComprovante(conteudo: string, titulo: string) {
   janela.document.write(html);
   janela.document.close();
   janela.focus();
-  // Aguarda a logo carregar antes de abrir a janela de impressão.
-  const imagemLogo = janela.document.querySelector<HTMLImageElement>(".logo-impressao");
-  let impressaoIniciada = false;
-  const iniciarImpressao = () => {
-    if (impressaoIniciada || janela.closed) return;
-    impressaoIniciada = true;
-    janela.focus();
-    janela.print();
-  };
-  if (imagemLogo?.complete) {
-    setTimeout(iniciarImpressao, 250);
-  } else if (imagemLogo) {
-    imagemLogo.addEventListener("load", () => setTimeout(iniciarImpressao, 250), { once: true });
-    imagemLogo.addEventListener("error", () => {
-      alert("A logo não foi carregada. Verifique se o arquivo PNG está na pasta public.");
-    }, { once: true });
-  } else {
-    setTimeout(iniciarImpressao, 250);
-  }
+  setTimeout(() => { if (!janela.closed) janela.print(); }, 450);
 }
 
 function imprimirComprovante(
   agendamento: Agendamento,
   servicoNome: string,
   pagamento: DadosPagamentoComprovante,
-  extras: ExtraAgendamento[] = []
+  extras: ExtraComprovante[] = []
 ) {
   const plano = Boolean(agendamento.plano && agendamento.plano !== "Avulso");
   // Nos planos desta Agenda, valor_total representa o pacote inteiro,
   // repetido em cada agendamento do mesmo ciclo.
   const valor = pagamento.valor ?? agendamento.valor_total;
   const nome = escaparHTMLComprovante;
-  const extrasAtivos = extras.filter(e => e.pagamento_status !== "Cancelado");
-  const totalExtras = extrasAtivos.reduce((t, e) => t + Number(e.valor || 0), 0);
-  const totalGeral = valor == null ? null : Number(valor) + totalExtras;
   const identificacao = obterIdentificacaoBanho(agendamento);
+  const extrasAtivos = extras.filter(extra => extra.pagamento_status !== "Cancelado");
+  const extrasRecebidos = extrasAtivos.filter(extra => extra.pagamento_status === "Pago").reduce((total, extra) => total + Number(extra.valor), 0);
+  const extrasPendentes = extrasAtivos.filter(extra => extra.pagamento_status !== "Pago").reduce((total, extra) => total + Number(extra.valor), 0);
   const dados = `
     <div class="linha"><span class="rotulo">Tutor</span><span class="valor">${nome(agendamento.tutorNome || "Tutor não informado")}</span></div>
     <div class="linha"><span class="rotulo">Pet</span><span class="valor">${nome(agendamento.petNome || "Pet")}</span></div>
@@ -522,11 +476,12 @@ function imprimirComprovante(
     <hr class="separador" />
     <div class="etiqueta" style="text-align:center">${plano ? "VALOR TOTAL DO CICLO" : "VALOR DO ATENDIMENTO"}</div>
     <div class="montante">${nome(valorComprovante(valor))}</div>
-    ${extrasAtivos.map(e => `<div class="linha"><span class="rotulo">Extra: ${nome(e.nome_servico)} (${nome(e.pagamento_status)})</span><span class="valor">${nome(formatarValor(Number(e.valor)))}</span></div>`).join("")}
-    ${extrasAtivos.length ? `<div class="linha"><span class="rotulo">TOTAL DOS EXTRAS</span><span class="valor"><strong>${nome(formatarValor(totalExtras))}</strong></span></div>
-    <div class="etiqueta" style="text-align:center">TOTAL GERAL (PLANO + EXTRAS)</div>
-    <div class="montante">${nome(valorComprovante(totalGeral))}</div>
-    <div class="observacao">O status PAGO/PENDENTE abaixo refere-se apenas ao plano ou atendimento. Os adicionais possuem status individuais acima.</div>` : ""}
+    <div class="linha"><span class="rotulo">VALORES JÁ PAGOS</span><span class="valor">${nome(valorComprovante(pagamento.recebido ?? (pagamento.pago ? valor : 0)))}</span></div>
+    <div class="linha"><span class="rotulo">CRÉDITO AVULSO REGISTRADO</span><span class="valor">${nome(formatarValor(pagamento.credito ?? 0))}</span></div>
+    <div class="linha"><span class="rotulo">${plano ? "SALDO DO PLANO" : "SALDO DO ATENDIMENTO"}</span><span class="valor">${nome(valorComprovante(pagamento.saldo === undefined ? (pagamento.pago ? 0 : valor) : pagamento.saldo))}</span></div>
+    ${extrasAtivos.map(extra => `<div class="linha"><span class="rotulo">Extra: ${nome(extra.nome_servico)} (${nome(extra.pagamento_status)})</span><span class="valor">${nome(formatarValor(extra.valor))}</span></div>`).join("")}
+    <div class="linha"><span class="rotulo">EXTRAS RECEBIDOS</span><span class="valor">${nome(formatarValor(extrasRecebidos))}</span></div>
+    <div class="linha"><span class="rotulo">EXTRAS PENDENTES</span><span class="valor">${nome(formatarValor(extrasPendentes))}</span></div>
     <div class="pagamento"><strong>${pagamento.pago ? "PAGO" : "PENDENTE / A CONFERIR"}</strong>${pagamento.pago && pagamento.forma ? `<span>${nome(pagamento.forma)}</span>` : ""}</div>
     ${plano ? `<div class="observacao">O valor indicado refere-se ao ciclo completo do plano, não apenas ao banho desta data.${valor === null || valor === undefined ? " Confira o valor total do plano no cadastro antes de cobrar." : ""}</div>` : ""}`;
   documentoComprovante(dados, "COMPROVANTE DE ATENDIMENTO");
@@ -536,16 +491,17 @@ function imprimirComprovanteGrupo(
   tutorNome: string,
   data: string,
   horario: string,
-  itens: ItemComprovanteGrupo[],
-  mostrarValores = true
+  itens: ItemComprovanteGrupo[]
 ) {
   if (itens.length === 0) return;
   const nome = escaparHTMLComprovante;
   const ciclosContabilizados = new Set<string>();
   let totalPago = 0;
   let totalPendente = 0;
+  let totalCredito = 0;
+  let totalGeral = 0;
+  const extrasContabilizados = new Set<string>();
   let faltamValores = false;
-  let totalExtras = 0;
   const linhas = itens.map((item, indice) => {
     // Não agrupar ciclos antigos sem identificador: podem ser ciclos diferentes.
     const chave = item.plano && item.ciclo !== null
@@ -553,15 +509,18 @@ function imprimirComprovanteGrupo(
     const repetido = ciclosContabilizados.has(chave);
     ciclosContabilizados.add(chave);
     if (!repetido) {
-      if (item.valor === null || !Number.isFinite(item.valor)) faltamValores = true;
-      else if (item.pago) totalPago += item.valor;
-      else totalPendente += item.valor;
+      if (item.valor === null || !Number.isFinite(item.valor) || item.texto === "A CONFERIR" || item.saldo === null) faltamValores = true;
+      totalGeral += Number(item.valor || 0);
+      totalPago += item.recebido ?? (item.pago ? Number(item.valor || 0) : 0);
+      totalCredito += item.credito ?? 0;
+      totalPendente += item.saldo === undefined ? (item.pago ? 0 : Number(item.valor || 0)) : Number(item.saldo || 0);
     }
-    const extrasAtivos = item.extras.filter(e => e.pagamento_status !== "Cancelado");
-    for (const extra of extrasAtivos) {
-      totalExtras += Number(extra.valor || 0);
-      if (extra.pagamento_status === "Pago") totalPago += Number(extra.valor || 0);
-      else totalPendente += Number(extra.valor || 0);
+    const extras = (item.extras || []).filter(extra => extra.pagamento_status !== "Cancelado" && !extrasContabilizados.has(extra.id));
+    for (const extra of extras) {
+      extrasContabilizados.add(extra.id);
+      totalGeral += Number(extra.valor);
+      if (extra.pagamento_status === "Pago") totalPago += Number(extra.valor);
+      else totalPendente += Number(extra.valor);
     }
     const tipo = item.plano ? `Plano ${item.tipoPlano || ""}${item.ciclo !== null ? ` • Ciclo ${item.ciclo}` : ""}` : "Atendimento avulso";
     return `<div class="pet">
@@ -569,10 +528,10 @@ function imprimirComprovanteGrupo(
       <div>${nome(item.servicoNome)}</div>
       <div class="detalhe">${nome(tipo)}</div>
       ${item.identificacao ? `<div class="detalhe">${nome(item.identificacao)}</div>` : ""}
-      ${mostrarValores ? `<div class="linha"><span class="rotulo">${item.plano ? "Total do ciclo" : "Valor"}</span><span class="valor"><strong>${nome(valorComprovante(item.valor))}</strong></span></div>` : ""}
-      ${mostrarValores ? `<div class="detalhe"><strong>${item.pago ? "PAGO" : "PENDENTE"}</strong>${item.pago && item.forma ? ` • ${nome(item.forma)}` : ""}</div>` : ""}
-      ${mostrarValores ? extrasAtivos.map(e => `<div class="linha"><span class="rotulo">Extra: ${nome(e.nome_servico)} (${nome(e.pagamento_status)})</span><span class="valor">${nome(formatarValor(Number(e.valor)))}</span></div>`).join("") : ""}
-      ${mostrarValores && repetido ? `<div class="observacao">Mesmo ciclo: valor contabilizado uma única vez.</div>` : ""}
+      <div class="linha"><span class="rotulo">${item.plano ? "Total do ciclo" : "Valor"}</span><span class="valor"><strong>${nome(valorComprovante(item.valor))}</strong></span></div>
+      <div class="detalhe"><strong>${item.pago ? "PAGO" : "PENDENTE"}</strong>${item.pago && item.forma ? ` • ${nome(item.forma)}` : ""}</div>
+      ${repetido ? `<div class="observacao">Mesmo ciclo: valor contabilizado uma única vez.</div>` : ""}
+      ${extras.map(extra => `<div class="detalhe">Extra: ${nome(extra.nome_servico)} • ${nome(extra.pagamento_status)} • ${nome(formatarValor(extra.valor))}</div>`).join("")}
     </div>`;
   }).join("");
   const dados = `
@@ -583,13 +542,13 @@ function imprimirComprovanteGrupo(
     <hr class="separador" />
     ${linhas}
     <hr class="separador" />
-    ${mostrarValores ? `<div class="linha"><span class="rotulo">TOTAL DOS EXTRAS INCLUÍDOS</span><span class="valor"><strong>${formatarValor(totalExtras)}</strong></span></div>
-    <div class="linha"><span class="rotulo">TOTAL GERAL (PLANOS + EXTRAS)</span><span class="valor"><strong>${faltamValores ? "A CONFERIR" : formatarValor(totalPago + totalPendente)}</strong></span></div>
     <div class="linha"><span class="rotulo">VALORES JÁ PAGOS</span><span class="valor"><strong>${formatarValor(totalPago)}</strong></span></div>
+    <div class="linha"><span class="rotulo">CRÉDITO AVULSO REGISTRADO</span><span class="valor"><strong>${formatarValor(totalCredito)}</strong></span></div>
+    <div class="linha"><span class="rotulo">TOTAL GERAL</span><span class="valor"><strong>${faltamValores ? "A CONFERIR" : formatarValor(totalGeral)}</strong></span></div>
     <div class="etiqueta" style="text-align:center;margin-top:10px">TOTAL PENDENTE${faltamValores ? " CONHECIDO" : ""}</div>
     <div class="montante">${formatarValor(totalPendente)}</div>
     ${faltamValores ? `<div class="observacao"><strong>ATENÇÃO:</strong> Há valores de ciclos/serviços a conferir. O total acima está incompleto; não utilize como valor final de cobrança.</div>` : ""}
-    <div class="observacao">Planos: os valores são referentes ao ciclo completo e cada ciclo identificado é somado apenas uma vez.</div>` : ""}`;
+    <div class="observacao">Planos: os valores são referentes ao ciclo completo e cada ciclo identificado é somado apenas uma vez.</div>`;
   documentoComprovante(dados, "COMPROVANTE CONJUNTO");
 }
 
@@ -600,8 +559,20 @@ export default function AgendaPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
   const [pagamentosPlanos, setPagamentosPlanos] = useState<PagamentoPlano[]>([]);
-  const [todosExtras, setTodosExtras] = useState<ExtraAgendamento[]>([]);
+  const [conversoes, setConversoes] = useState<ConversaoFinanceira[]>([]);
+  const [parcelas, setParcelas] = useState<ParcelaConversao[]>([]);
+  const [extrasComprovantes, setExtrasComprovantes] = useState<ExtraComprovante[]>([]);
+  const [servicoExtraId, setServicoExtraId] = useState("");
+  const [valorExtra, setValorExtra] = useState("");
+  const [salvandoExtra, setSalvandoExtra] = useState(false);
+  const [renovacao, setRenovacao] = useState<Agendamento | null>(null);
+  const [renovacoesGrupo, setRenovacoesGrupo] = useState<Agendamento[]>([]);
+  const [dataInicioRenovacao, setDataInicioRenovacao] = useState("");
+  const [horarioRenovacao, setHorarioRenovacao] = useState("08:30");
+  const [salvandoRenovacao, setSalvandoRenovacao] = useState(false);
+  const [erroExtra, setErroExtra] = useState("");
   const [carregando, setCarregando] = useState(true);
+  const [erroCarregamento, setErroCarregamento] = useState("");
   const [mesAtual, setMesAtual] = useState(new Date());
   const [dataSelecionada, setDataSelecionada] = useState(obterDataLocal());
 
@@ -616,24 +587,10 @@ export default function AgendaPage() {
     useState<Frequencia>("Avulso");
   const [servicoSelecionado, setServicoSelecionado] = useState("");
   const [dataAgendamento, setDataAgendamento] = useState("");
-  const [horarioAgendamento, setHorarioAgendamento] = useState("08:30");
+  const [horarioAgendamento, setHorarioAgendamento] = useState("08:00");
   const [observacoes, setObservacoes] = useState("");
   const [valorAgendamento, setValorAgendamento] = useState("");
-  const [salvandoValor, setSalvandoValor] = useState(false);
-  const [extrasAgenda, setExtrasAgenda] = useState<ExtraAgendamento[]>([]);
-  const [carregandoExtras, setCarregandoExtras] = useState(false);
-  const [salvandoExtra, setSalvandoExtra] = useState(false);
-  const [servicoExtraId, setServicoExtraId] = useState("");
-  const [valorExtra, setValorExtra] = useState("");
-  const [erroExtra, setErroExtra] = useState("");
-
   const [salvando, setSalvando] = useState(false);
-  const [renovacao, setRenovacao] = useState<Agendamento | null>(null);
-  const [renovacoesGrupo, setRenovacoesGrupo] = useState<Agendamento[]>([]);
-  const [tutorRenovacao, setTutorRenovacao] = useState<{ nome: string; whatsapp: string } | null>(null);
-  const [dataInicioRenovacao, setDataInicioRenovacao] = useState("");
-  const [horarioRenovacao, setHorarioRenovacao] = useState("08:30");
-  const [salvandoRenovacao, setSalvandoRenovacao] = useState(false);
   const registroAtendimentoEmAndamento = useRef(false);
   const [modoReagendamento, setModoReagendamento] = useState<"unico" | "ciclo">("unico");
   const [buscaAgenda, setBuscaAgenda] = useState("");
@@ -644,19 +601,9 @@ export default function AgendaPage() {
     void carregarDados();
   }, []);
 
-  // Recarrega ao voltar de outra aba, para refletir pagamentos feitos no sistema.
-  useEffect(() => {
-    const aoVoltar = () => {
-      if (document.visibilityState === "visible" && !registroAtendimentoEmAndamento.current) {
-        void carregarDados();
-      }
-    };
-    document.addEventListener("visibilitychange", aoVoltar);
-    return () => document.removeEventListener("visibilitychange", aoVoltar);
-  }, []);
-
   async function carregarDados() {
     setCarregando(true);
+    setErroCarregamento("");
 
     try {
       const { data: usuarioR, error: erroUsuario } = await supabase.auth.getUser();
@@ -676,66 +623,68 @@ export default function AgendaPage() {
         agendamentosR,
         atendimentosR,
         pagamentosR,
+        conversoesR,
+        parcelasR,
         extrasR,
       ] = await Promise.all([
-        supabase
+        paginar<Cliente>((inicio, fim) => supabase
           .from("clientes")
           .select("id, nome, whatsapp, telefone")
-          .order("nome"),
-        supabase
+          .order("nome").order("id").range(inicio, fim), "clientes"),
+        paginar<Pick<Pet, "id" | "nome" | "cliente_id" | "sexo" | "raca">>((inicio, fim) => supabase
           .from("pets")
-          .select("id, nome, cliente_id, sexo")
-          .order("nome"),
-        supabase
+          .select(CAMPOS_PETS_AGENDA)
+          .order("nome").order("id").range(inicio, fim), "pets"),
+        paginar<Servico>((inicio, fim) => supabase
           .from("servicos")
           .select("id, nome, preco, duracao_minutos")
-          .order("nome"),
-        supabase
+          .order("nome").order("id").range(inicio, fim), "serviços"),
+        paginar<Agendamento>((inicio, fim) => supabase
           .from("agendamentos")
           .select(
             "id, pet_id, servico_id, data, horario, status, observacoes, valor_total, servico_nome, plano, numero_banho, ciclo, pagamento_status, forma_pagamento_plano"
           )
           .order("data")
-          .order("horario"),
+          .order("horario").order("id").range(inicio, fim), "agendamentos"),
         administrador
-          ? supabase
+          ? paginar<Atendimento>((inicio, fim) => supabase
               .from("atendimentos")
               .select("id, agendamento_id, pet_id, data, valor, forma_pagamento")
-              .order("data")
-          : supabase
+              .order("data").order("id").range(inicio, fim), "atendimentos")
+          : paginar<Pick<Atendimento, "id" | "agendamento_id" | "pet_id" | "data">>((inicio, fim) => supabase
               .from("atendimentos")
               .select("id, agendamento_id, pet_id, data")
-              .order("data"),
+              .order("data").order("id").range(inicio, fim), "atendimentos"),
         administrador
-          ? supabase.from("pagamentos_planos")
+          ? paginar<PagamentoPlano>((inicio, fim) => supabase.from("pagamentos_planos")
               .select("id, pet_id, ciclo, valor, forma_pagamento, data_pagamento")
-              .order("data_pagamento")
+              .order("data_pagamento").order("id").range(inicio, fim), "pagamentos")
           : Promise.resolve({ data: [] as PagamentoPlano[], error: null }),
-        administrador
-          ? supabase.from("servicos_extras_agendamento")
-              .select("id,agendamento_id,pet_id,servico_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento")
-          : Promise.resolve({ data: [] as ExtraAgendamento[], error: null }),
+        administrador ? paginar<ConversaoFinanceira>((inicio, fim) => supabase.from("conversoes_avulso_plano")
+          .select("id,pet_id,ciclo,valor_plano,credito_avulso").order("id").range(inicio, fim), "conversões")
+          : Promise.resolve({ data: [] as ConversaoFinanceira[], error: null }),
+        administrador ? paginar<ParcelaConversao>((inicio, fim) => supabase.from("recebimentos_parciais_planos")
+          .select("id,conversao_id,valor,forma_pagamento").order("id").range(inicio, fim), "parcelas")
+          : Promise.resolve({ data: [] as ParcelaConversao[], error: null }),
+        administrador ? paginar<ExtraComprovante>((inicio, fim) => supabase.from("servicos_extras_agendamento")
+          .select("id,agendamento_id,nome_servico,valor,pagamento_status").order("id").range(inicio, fim), "extras")
+          : Promise.resolve({ data: [] as ExtraComprovante[], error: null }),
       ]);
 
-      if (clientesR.error) console.error(clientesR.error);
-      if (petsR.error) console.error(petsR.error);
-      if (servicosR.error) console.error(servicosR.error);
-      if (agendamentosR.error) console.error(agendamentosR.error);
-      if (atendimentosR.error) console.error(atendimentosR.error);
-      if (extrasR.error) throw new Error("Não foi possível carregar os serviços extras: " + extrasR.error.message);
-      if (pagamentosR.error) {
-        console.error("Erro ao carregar pagamentos:", pagamentosR.error);
+      for (const [resposta, entidade] of [
+        [clientesR, "clientes"], [petsR, "pets"], [servicosR, "serviços"],
+        [agendamentosR, "agendamentos"], [atendimentosR, "atendimentos"],
+        [pagamentosR, "pagamentos"],
+        [conversoesR, "conversões"], [parcelasR, "parcelas"], [extrasR, "extras"],
+      ] as const) {
+        confirmarLeituraAgenda(resposta, entidade);
       }
 
       const listaClientes = (clientesR.data || []) as Cliente[];
       const listaPetsBanco = petsR.data || [];
       const listaServicos = (servicosR.data || []) as Servico[];
       const listaAgendamentos = (agendamentosR.data || []) as Agendamento[];
-      const registrosAtendimentos = (atendimentosR.data || []) as unknown as Array<
-        Pick<Atendimento, "id" | "agendamento_id" | "pet_id" | "data"> &
-          Partial<Pick<Atendimento, "valor" | "forma_pagamento">>
-      >;
-      const listaAtendimentos: Atendimento[] = registrosAtendimentos.map(
+      const listaAtendimentos: Atendimento[] = (atendimentosR.data || []).map(
         (item) => ({
           id: item.id,
           agendamento_id: item.agendamento_id,
@@ -750,33 +699,9 @@ export default function AgendaPage() {
       );
       const listaPagamentos = (pagamentosR.data || []) as PagamentoPlano[];
 
-      const petsFormatados: Pet[] = listaPetsBanco.map((pet) => {
-        const cliente = listaClientes.find(
-          (item) => item.id === pet.cliente_id
-        );
-
-        return {
-          id: pet.id,
-          nome: pet.nome,
-          cliente_id: pet.cliente_id,
-          sexo: pet.sexo || null,
-          whatsapp: cliente?.whatsapp || cliente?.telefone || "",
-          tutorNome: cliente?.nome || "Tutor não informado",
-        };
-      });
-
-      const agendamentosFormatados = listaAgendamentos.map((agendamento) => {
-        const pet = petsFormatados.find(
-          (item) => item.id === agendamento.pet_id
-        );
-
-        return {
-          ...agendamento,
-          petNome: pet?.nome || "Pet",
-          tutorNome: pet?.tutorNome || "Tutor não informado",
-          whatsapp: pet?.whatsapp || "",
-        };
-      });
+      const { petsFormatados, agendamentosFormatados } = associarDadosAgenda(
+        listaClientes, listaPetsBanco, listaAgendamentos,
+      );
 
       setClientes(listaClientes);
       setPets(petsFormatados);
@@ -784,13 +709,18 @@ export default function AgendaPage() {
       setAgendamentos(agendamentosFormatados);
       setAtendimentos(listaAtendimentos);
       setPagamentosPlanos(listaPagamentos);
-      setTodosExtras((extrasR.data || []) as ExtraAgendamento[]);
+      setConversoes(conversoesR.data);
+      setParcelas(parcelasR.data);
+      setExtrasComprovantes(extrasR.data);
     } catch (erro) {
       setPerfilUsuario(null);
       setClientes([]); setPets([]); setServicos([]);
-      setAgendamentos([]); setAtendimentos([]); setPagamentosPlanos([]); setTodosExtras([]);
+      setAgendamentos([]); setAtendimentos([]); setPagamentosPlanos([]);
+      setConversoes([]); setParcelas([]); setExtrasComprovantes([]);
       console.error("Erro ao carregar a agenda:", erro);
-      alert("Não foi possível carregar todos os dados da agenda.");
+      setErroCarregamento(erro instanceof ErroLeituraAgenda
+        ? erro.message
+        : "Não foi possível carregar a Agenda. Verifique sua sessão, conexão e permissões de leitura e tente novamente.");
     } finally {
       setCarregando(false);
     }
@@ -798,12 +728,8 @@ export default function AgendaPage() {
 
   function obterNomeServico(agendamento: Agendamento) {
     return nomeServicoPadronizado(
-      ajustarServicoPorBanho(
-        agendamento.servico_nome ||
-          servicos.find((item) => item.id === agendamento.servico_id)?.nome,
-        agendamento.plano,
-        agendamento.numero_banho
-      )
+      agendamento.servico_nome ||
+      servicos.find((item) => item.id === agendamento.servico_id)?.nome
     );
   }
 
@@ -821,259 +747,107 @@ export default function AgendaPage() {
   }
 
   function obterPagamentoDoCiclo(agendamento: Agendamento) {
-    if (ehPlano(agendamento)) {
-      const pagamento = pagamentosPlanos.find(
-        (item) =>
-          item.pet_id === agendamento.pet_id &&
-          item.ciclo === agendamento.ciclo
-      );
-
-      if (pagamento) {
-        return {
-          pago: true,
-          texto: "PAGO",
-          forma: pagamento.forma_pagamento,
-          valor: Number(pagamento.valor),
-        };
-      }
-
-      if (
-        normalizarStatusPagamento(agendamento.pagamento_status) === "pago"
-      ) {
-        return {
-          pago: true,
-          texto: "A CONFERIR",
-          forma: agendamento.forma_pagamento_plano || null,
-          valor: agendamento.valor_total,
-        };
-      }
-
-      return {
-        pago: false,
-        texto: "NÃO PAGO",
-        forma: null,
-        valor: agendamento.valor_total,
-      };
-    }
-
-    const atendimento = atendimentos.find(
-      (item) => item.agendamento_id === agendamento.id
-    );
-
-    const pago = Boolean(atendimento?.forma_pagamento);
-
+    const resumo = ehPlano(agendamento)
+      ? resumirCiclo(agendamentos.filter(item => item.pet_id === agendamento.pet_id && item.ciclo === agendamento.ciclo), pagamentosPlanos, conversoes, parcelas)
+      : resumirAvulso(agendamento.valor_total, atendimentos.filter(item => item.agendamento_id === agendamento.id), agendamento.pagamento_status);
+    const textos = { pago: "PAGO", pendente: "N?O PAGO", parcial: "PARCIAL", cancelado: "CANCELADO", conferir: "A CONFERIR" };
     return {
-      pago,
-      texto: pago ? "PAGO" : "NÃO PAGO",
-      forma: atendimento?.forma_pagamento || null,
-      valor: atendimento?.valor ?? agendamento.valor_total,
+      ...resumo,
+      pago: resumo.estado === "pago",
+      texto: textos[resumo.estado],
+      saldo: resumo.estado === "conferir" ? null : resumo.saldo,
     };
   }
 
-  // Renovação manual: somente no último banho do ciclo mais recente.
-  // Não gera agenda anual nem modifica registros de ciclos anteriores.
+  // Renovação manual, atômica no banco, sem alterar o histórico dos ciclos anteriores.
   function podeRenovarCiclo(ag: Agendamento) {
-    if (estaCancelado(ag) || !ehPlano(ag)) return false;
-    const total = ag.plano === "Quinzenal" ? 2 : ag.plano === "Mensal" ? 4 : 0;
-    if (!total || ag.numero_banho !== total || ag.ciclo === null) return false;
-    const ciclos = agendamentos.filter(a =>
-      a.pet_id === ag.pet_id && a.ciclo !== null && !estaCancelado(a)
-    );
-    const maiorCiclo = Math.max(0, ...ciclos.map(a => Number(a.ciclo) || 0));
-    if (Number(ag.ciclo) !== maiorCiclo) return false;
-    // Não permitir renovação enquanto houver banhos anteriores pendentes.
-    const doCiclo = ciclos.filter(a => a.ciclo === ag.ciclo);
-    // Aceita registros históricos repetidos, mas exige todos os banhos numerados
-    // concluídos. Um ciclo posterior continua impedindo nova renovação.
-    if (!Array.from({ length: total }, (_, i) => i + 1).every(n =>
-      doCiclo.some(a => Number(a.numero_banho) === n && estaConcluido(a))
-    )) return false;
-    if (doCiclo.some(a => !estaConcluido(a))) return false;
-    return true;
-  }
-
-  // Botão de aviso em todo primeiro banho de pacote Mensal/Quinzenal, inclusive ciclo 1.
-  function ehPrimeiroBanhoDeRenovacao(ag: Agendamento) {
-    return !estaCancelado(ag) && ehPlano(ag) &&
-      Number(ag.numero_banho) === 1;
-  }
-
-  function avisarRenovacaoWhatsApp(grupo: GrupoTutor) {
-    const candidatos = grupo.agendamentos.filter(ehPrimeiroBanhoDeRenovacao);
-    const unicos = candidatos.filter((a, i) => candidatos.findIndex(b => b.pet_id === a.pet_id) === i);
-    if (!unicos.length) return;
-    if (!grupo.whatsapp) { alert("Este tutor não possui WhatsApp cadastrado."); return; }
-
-    const artigos = unicos.map(ag => {
-      const sexo = pets.find(p => p.id === ag.pet_id)?.sexo || null;
-      const normalizado = (sexo || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-      const artigo = ["femea", "f", "feminino"].includes(normalizado) ? "da" :
-        ["macho", "m", "masculino"].includes(normalizado) ? "do" : "para";
-      return `${artigo} ${ag.petNome || "pet"}`;
-    });
-    const nomes = artigos.length === 1 ? artigos[0] :
-      `${artigos.slice(0, -1).join(", ")} e ${artigos[artigos.length - 1]}`;
-
-    const valores = unicos.map(ag => {
-      const valor = valorSugerido(ag);
-      return valor === null || valor === undefined || !Number.isFinite(Number(valor)) || Number(valor) <= 0
-        ? null : Number(valor);
-    });
-    const todosComValor = valores.every(v => v !== null);
-    const total = valores.reduce<number>((soma, valor) => soma + (valor ?? 0), 0);
-    const linhas = unicos.flatMap((ag, indice) => {
-      const datasCiclo = agendamentos.filter(a =>
-        a.pet_id === ag.pet_id && a.ciclo === ag.ciclo &&
-        !estaCancelado(a) && Number(a.numero_banho) > 0
-      ).sort((a, b) => Number(a.numero_banho) - Number(b.numero_banho));
-      const datas = datasCiclo.map(a =>
-        `📅 ${a.numero_banho}º banho: ${formatarDataLocal(a.data)} às ${formatarHorario(a.horario)}`);
-      return [
-        `🐾 ${ag.petNome || "Pet"} — Plano ${ag.plano}`,
-        ...datas,
-        `💰 Valor do pacote: ${valores[indice] === null ? "A confirmar" : formatarValor(valores[indice])}`,
-        ""
-      ];
-    });
-    const mensagem = [
-      `Olá, ${grupo.tutorNome}! 🐾💚`, "",
-      `Passando para lembrar que hoje é dia de renovação ${unicos.length === 1 ? "do pacote de banho" : "dos pacotes de banho"} ${nomes} aqui no SPA PET AGROMINAS! 🐶🛁`, "",
-      "📅 Confira abaixo as datas programadas para este ciclo de cuidados:", "",
-      ...linhas,
-      `💚 Valor total: ${todosComValor ? formatarValor(total) : "A confirmar (há pacote sem valor cadastrado)"}`,
-      "", "Agradecemos pela confiança e esperamos vocês! 💚🐾"
-    ].join("\n");
-    abrirMensagemWhatsApp(grupo.whatsapp, mensagem);
+    if (estaCancelado(ag) || !ehPlano(ag) || ag.ciclo === null) return false;
+    const quantidade = ag.plano === "Quinzenal" ? 2 : ag.plano === "Mensal" ? 4 : 0;
+    if (!quantidade || Number(ag.numero_banho) !== quantidade) return false;
+    const ciclos = agendamentos.filter(a => a.pet_id === ag.pet_id && a.ciclo !== null && !estaCancelado(a));
+    if (Number(ag.ciclo) !== Math.max(0, ...ciclos.map(a => Number(a.ciclo) || 0))) return false;
+    const doCiclo = ciclos.filter(a => Number(a.ciclo) === Number(ag.ciclo));
+    return doCiclo.every(estaConcluido) && Array.from({length: quantidade}, (_, i) => i + 1)
+      .every(n => doCiclo.some(a => Number(a.numero_banho) === n && estaConcluido(a)));
   }
 
   function abrirRenovacaoGrupo(grupo: GrupoTutor) {
-    const elegiveis = grupo.agendamentos.filter(a => podeRenovarCiclo(a));
-    const unicos = elegiveis.filter((a, indice) => elegiveis.findIndex(b => b.pet_id === a.pet_id) === indice);
+    const elegiveis = grupo.agendamentos.filter(podeRenovarCiclo);
+    const unicos = elegiveis.filter((a, i) => elegiveis.findIndex(b => b.pet_id === a.pet_id) === i);
     if (!unicos.length) return;
     const primeiro = unicos[0];
-    const intervalo = primeiro.plano === "Quinzenal" ? 14 : 7;
-    setDataInicioRenovacao(adicionarDias(primeiro.data, intervalo));
-    setHorarioRenovacao(formatarHorario(primeiro.horario));
     setRenovacoesGrupo(unicos);
-    setTutorRenovacao({ nome: grupo.tutorNome, whatsapp: grupo.whatsapp });
     setRenovacao(primeiro);
+    setDataInicioRenovacao(adicionarDias(primeiro.data, primeiro.plano === "Quinzenal" ? 14 : 7));
+    setHorarioRenovacao(formatarHorario(primeiro.horario) < "12:00" ? "08:30" : "13:30");
   }
-
-  function abrirRenovacao(ag: Agendamento) {
-    if (!podeRenovarCiclo(ag)) {
-      alert("Conclua os banhos do ciclo atual antes de renovar.");
-      return;
-    }
-    const intervalo = ag.plano === "Quinzenal" ? 14 : 7;
-    setDataInicioRenovacao(adicionarDias(ag.data, intervalo));
-    setHorarioRenovacao(formatarHorario(ag.horario));
-    setRenovacoesGrupo([ag]);
-    setTutorRenovacao({ nome: ag.tutorNome || "Tutor", whatsapp: ag.whatsapp || "" });
-    setRenovacao(ag);
-  }
-
-  const quantidadeRenovacao = renovacao?.plano === "Quinzenal" ? 2 : 4;
-  const intervaloRenovacao = renovacao?.plano === "Quinzenal" ? 14 : 7;
-  const datasRenovacao = renovacao && dataValida(dataInicioRenovacao)
-    ? Array.from({ length: quantidadeRenovacao }, (_, i) =>
-        adicionarDias(dataInicioRenovacao, i * intervaloRenovacao))
-    : [];
 
   async function confirmarRenovacao() {
-    if (!renovacao || salvandoRenovacao || !perfilUsuario) return;
+    if (!renovacao || salvandoRenovacao || !ehAdmin) return;
     const selecionados = renovacoesGrupo.length ? renovacoesGrupo : [renovacao];
-    if (!selecionados.every(podeRenovarCiclo)) {
-      alert("Há ciclos que não estão prontos para renovação. Atualize a Agenda."); return;
-    }
+    if (!selecionados.every(podeRenovarCiclo)) { alert("Conclua os banhos dos ciclos atuais antes de renovar."); return; }
     if (!dataValida(dataInicioRenovacao) || !["08:30", "13:30"].includes(horarioRenovacao)) {
-      alert("Informe uma data e um turno válidos."); return;
+      alert("Informe data e turno válidos."); return;
     }
-    const planos = selecionados.map(ag => {
-      const quantidade = ag.plano === "Quinzenal" ? 2 : 4;
-      const intervalo = ag.plano === "Quinzenal" ? 14 : 7;
-      return {
-        ag,
-        ciclo: Number(ag.ciclo) + 1,
-        datas: Array.from({ length: quantidade }, (_, i) => adicionarDias(dataInicioRenovacao, i * intervalo))
-      };
-    });
+    const planos = selecionados.map(ag => ({
+      ag, ciclo: Number(ag.ciclo) + 1,
+      datas: Array.from({ length: ag.plano === "Quinzenal" ? 2 : 4 }, (_, i) =>
+        adicionarDias(dataInicioRenovacao, i * (ag.plano === "Quinzenal" ? 14 : 7)))
+    }));
     if (planos.some(item => dataInicioRenovacao <= item.ag.data)) {
-      alert("O novo ciclo precisa começar depois do último banho de todos os pets."); return;
+      alert("O novo ciclo precisa começar depois do último banho do ciclo anterior."); return;
     }
-    const previa = planos.map(item =>
-      `${item.ag.petNome} — ${item.ag.plano} (ciclo ${item.ciclo})\n` +
-      item.datas.map((data, i) => `${i + 1}º banho: ${formatarDataLocal(data)} às ${horarioRenovacao}`).join("\n")
-    ).join("\n\n");
+    const previa = planos.map(item => `${item.ag.petNome || "Pet"} — ${item.ag.plano} (ciclo ${item.ciclo})\n` +
+      item.datas.map((data, i) => `${i + 1}º banho: ${formatarDataLocal(data)} às ${horarioRenovacao}`).join("\n")).join("\n\n");
     if (!window.confirm(`Confirmar renovação?\n\n${previa}\n\nO pagamento ficará pendente.`)) return;
     setSalvandoRenovacao(true);
     try {
-      // Valida todos os pets antes de criar qualquer agendamento.
       for (const item of planos) {
         const { data: existentes, error } = await supabase.from("agendamentos")
           .select("id, ciclo, data, numero_banho, status").eq("pet_id", item.ag.pet_id);
         if (error) throw error;
-        const ativos = (existentes || []).filter(a =>
-          !["cancelado", "cancelada"].includes(statusNormalizado(a.status)));
+        const ativos = (existentes || []).filter(a => !["cancelado", "cancelada"].includes(statusNormalizado(a.status)));
         if (ativos.some(a => a.ciclo !== null && Number(a.ciclo) >= item.ciclo))
           throw new Error(`Já existe ciclo posterior para ${item.ag.petNome}.`);
         if (ativos.some(a => item.datas.includes(a.data)))
-          throw new Error(`Já existe banho agendado nas novas datas para ${item.ag.petNome}.`);
+          throw new Error(`Já existe banho agendado nessas datas para ${item.ag.petNome}.`);
         const origem = ativos.filter(a => Number(a.ciclo) === Number(item.ag.ciclo));
-        const concluidoNoBanco = (a: typeof origem[number]) =>
-          ["concluido", "finalizado"].includes(statusNormalizado(a.status)) ||
+        const concluido = (a: typeof origem[number]) => ["concluido", "finalizado"].includes(statusNormalizado(a.status)) ||
           atendimentos.some(at => at.agendamento_id === a.id);
-        if (origem.some(a => !concluidoNoBanco(a)) ||
-            !item.datas.every((_, i) => origem.some(a => Number(a.numero_banho) === i + 1 && concluidoNoBanco(a))))
+        if (origem.some(a => !concluido(a)) ||
+          !item.datas.every((_, i) => origem.some(a => Number(a.numero_banho) === i + 1 && concluido(a))))
           throw new Error(`O ciclo de ${item.ag.petNome} não está completamente concluído.`);
       }
       const registros = planos.flatMap(item => {
-        const primeiroBanho = agendamentos.find(a => a.pet_id === item.ag.pet_id &&
-          a.ciclo === item.ag.ciclo && a.numero_banho === 1);
-        const servicoBase = primeiroBanho?.servico_nome || item.ag.servico_nome ||
+        const primeiro = agendamentos.find(a => a.pet_id === item.ag.pet_id && a.ciclo === item.ag.ciclo && a.numero_banho === 1);
+        const servicoBase = primeiro?.servico_nome || item.ag.servico_nome ||
           servicos.find(s => s.id === item.ag.servico_id)?.nome || null;
+        const valor = primeiro?.valor_total ?? item.ag.valor_total;
         return item.datas.map((data, i) => ({
-          pet_id: item.ag.pet_id,
-          servico_id: item.ag.servico_id,
-          servico_nome: ajustarServicoPorBanho(servicoBase, item.ag.plano, i + 1) || null,
-          observacoes: item.ag.observacoes,
-          valor_total: valorSugerido(item.ag),
-          data, horario: horarioRenovacao, status: "Agendado",
-          plano: item.ag.plano, numero_banho: i + 1, ciclo: item.ciclo,
+          pet_id: item.ag.pet_id, servico_id: item.ag.servico_id,
+          servico_nome: ajustarServicoPorBanho(servicoBase, item.ag.plano, i + 1),
+          observacoes: item.ag.observacoes, valor_total: valor, data,
+          horario: horarioRenovacao, status: "Agendado", plano: item.ag.plano,
+          numero_banho: i + 1, ciclo: item.ciclo,
           pagamento_status: "Pendente", forma_pagamento_plano: null
         }));
       });
-      const { data: quantidadeInserida, error: erroInsercao } = await supabase
-        .rpc("renovar_ciclos_agrominas", { p_registros: registros, p_atualizacao_pet: null });
-      if (erroInsercao) throw erroInsercao;
-      if (Number(quantidadeInserida) !== registros.length)
-        throw new Error("A gravação não foi confirmada integralmente. Confira a agenda.");
-      const tutor = tutorRenovacao;
+      const { data: inseridos, error } = await supabase.rpc("renovar_ciclos_agrominas", {
+        p_registros: registros, p_atualizacao_pet: null
+      });
+      if (error) throw error;
+      if (Number(inseridos) !== registros.length) throw new Error("Não foi possível confirmar todos os registros. Confira a Agenda.");
       setRenovacao(null);
       setRenovacoesGrupo([]);
-      setTutorRenovacao(null);
       await carregarDados();
-      alert(`${planos.length} ${planos.length === 1 ? "ciclo renovado" : "ciclos renovados"}! ${registros.length} banhos agendados.`);
-      if (tutor?.whatsapp && window.confirm("Deseja abrir o WhatsApp com as próximas datas dos banhos?")) {
-        const valoresPlanos = planos.map(item => valorSugerido(item.ag));
-        const totalConfirmado = valoresPlanos.every(v => v !== null && v !== undefined && Number(v) > 0);
-        const totalPacotes = valoresPlanos.reduce<number>((s, v) => s + (Number(v) > 0 ? Number(v) : 0), 0);
-        const mensagem = [
-          `Olá, ${tutor.nome}! 🐾💚`, "",
-          "Os novos banhos foram agendados no SPA PET AGROMINAS! 🐶🛁", "",
-          ...planos.flatMap((item, indice) => [
-            `🐾 ${item.ag.petNome} — Plano ${item.ag.plano}`,
-            ...item.datas.map((data, i) => `📅 ${i + 1}º banho: ${formatarDataLocal(data)} às ${horarioRenovacao}`),
-            `💰 Valor do pacote: ${Number(valoresPlanos[indice]) > 0 ? formatarValor(valoresPlanos[indice]) : "A confirmar"}`,
-            ""
-          ]),
-          `💚 Valor total: ${totalConfirmado ? formatarValor(totalPacotes) : "A confirmar (há pacote sem valor cadastrado)"}`,
-          "", "Agradecemos pela confiança e esperamos vocês! 💚🐾"
-        ].join("\n");
-        abrirMensagemWhatsApp(tutor.whatsapp, mensagem);
+      alert(`${planos.length} ciclo(s) renovado(s)! ${registros.length} banhos agendados.`);
+      const telefone = renovacao.whatsapp || "";
+      if (telefone && window.confirm("Deseja enviar as novas datas pelo WhatsApp?")) {
+        abrirMensagemWhatsApp(telefone, `Olá! Os novos banhos foram agendados no SPA PET AGROMINAS.\n\n${previa}\n\nO pagamento do novo ciclo está pendente.`);
       }
-    } catch (erro: unknown) {
-      console.error("Erro ao renovar ciclos:", erro);
-      alert((erro instanceof Error ? erro.message : null) || "Não foi possível renovar os ciclos.");
+    } catch (erro) {
+      console.error("Erro na renovação:", erro);
+      alert(erro instanceof Error ? erro.message : "Não foi possível renovar o ciclo.");
       await carregarDados();
     } finally { setSalvandoRenovacao(false); }
   }
@@ -1086,151 +860,18 @@ export default function AgendaPage() {
     setFrequenciaAgendamento("Avulso");
     setServicoSelecionado("");
     setDataAgendamento(data || dataSelecionada);
-    setHorarioAgendamento("08:30");
+    setHorarioAgendamento("08:00");
     setObservacoes("");
     setValorAgendamento("");
     setModoReagendamento("unico");
     setModalAgendamento(true);
   }
 
-  // Para pacotes, o valor pertence ao ciclo inteiro, não a um banho isolado.
-  function banhosDoMesmoCiclo(ag: Agendamento) {
-    if (!ehPlano(ag)) return [ag];
-    return agendamentos.filter(a => a.pet_id === ag.pet_id &&
-      a.plano === ag.plano && a.ciclo === ag.ciclo && !estaCancelado(a));
-  }
-
-  function valorSugerido(ag: Agendamento) {
-    if (ag.valor_total !== null && Number(ag.valor_total) > 0) return Number(ag.valor_total);
-    const outros = banhosDoMesmoCiclo(ag).find(a =>
-      a.valor_total !== null && Number(a.valor_total) > 0);
-    if (outros) return Number(outros.valor_total);
-    // Preço de serviço não é usado como preço de pacote: pode ser por banho.
-    if (!ehPlano(ag)) {
-      const preco = servicos.find(s => s.id === ag.servico_id)?.preco;
-      if (preco !== null && preco !== undefined && preco > 0) return preco;
-    }
-    return ag.valor_total;
-  }
-
-  async function salvarCorrecaoValor(ag: Agendamento, textoDigitado: string) {
-    if (!ehAdmin || salvandoValor) return false;
-    const texto = textoDigitado.trim();
-    const valor = Number(texto.replace(",", "."));
-    if (!texto || !/^\d+(?:[,.]\d{1,2})?$/.test(texto) || !Number.isFinite(valor)) {
-      alert("Informe um valor válido, por exemplo 180,00."); return false;
-    }
-    const registros = banhosDoMesmoCiclo(ag);
-    if (registros.length === 0) { alert("Não foi possível identificar o ciclo."); return false; }
-    const pago = ehPlano(ag) && pagamentosPlanos.some(p =>
-      p.pet_id === ag.pet_id && p.ciclo === ag.ciclo);
-    const aviso = pago
-      ? "\nATENÇÃO: existe pagamento registrado. O valor do pagamento NÃO será alterado."
-      : "\nOs pagamentos já registrados NÃO serão alterados.";
-    if (!window.confirm(`Confirmar valor de ${formatarValor(valor)} para ${ag.petNome}?\n` +
-      (ehPlano(ag) ? `Serão atualizados ${registros.length} banhos deste ciclo.` : "Será atualizado este agendamento.") + aviso)) return false;
-    setSalvandoValor(true);
-    try {
-      const ids = registros.map(a => a.id);
-      const resposta = await supabase.from("agendamentos")
-        .update({ valor_total: valor }).in("id", ids).select("id");
-      if (resposta.error) throw resposta.error;
-      if (resposta.data?.length !== ids.length) throw new Error("Nem todos os registros foram confirmados. Atualize a Agenda e confira os valores.");
-      const conjunto = new Set(ids);
-      setAgendamentos(anteriores => anteriores.map(a =>
-        conjunto.has(a.id) ? { ...a, valor_total: valor } : a));
-      return true;
-    } catch (erro: unknown) {
-      console.error("Erro ao corrigir valor:", erro);
-      alert((erro instanceof Error ? erro.message : null) || "Não foi possível corrigir o valor.");
-      await carregarDados();
-      return false;
-    } finally { setSalvandoValor(false); }
-  }
-
-  async function carregarExtrasAgendamento(agendamentoId: string) {
-    setCarregandoExtras(true);
-    setErroExtra("");
-    setExtrasAgenda([]);
-    try {
-      const { data, error } = await supabase
-        .from("servicos_extras_agendamento")
-        .select("id,agendamento_id,pet_id,servico_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento")
-        .eq("agendamento_id", agendamentoId)
-        .order("criado_em", { ascending: true });
-      if (error) throw error;
-      setExtrasAgenda((data || []) as ExtraAgendamento[]);
-      setTodosExtras(anteriores => [
-        ...anteriores.filter(e => e.agendamento_id !== agendamentoId),
-        ...((data || []) as ExtraAgendamento[]),
-      ]);
-    } catch (e: unknown) {
-      setErroExtra(e instanceof Error ? e.message : "Não foi possível carregar os serviços extras.");
-    } finally {
-      setCarregandoExtras(false);
-    }
-  }
-
-  async function adicionarExtraAgendamento() {
-    const ag = agendamentoSelecionado;
-    if (!ehAdmin || !ag || salvandoExtra) return;
-    const servico = servicos.find(s => s.id === servicoExtraId && NOMES_EXTRAS.has(s.nome));
-    const texto = valorExtra.trim().replace(",", ".");
-    const numero = Number(texto);
-    if (!servico || !texto || !Number.isFinite(numero) || numero < 0) {
-      setErroExtra("Selecione um adicional e informe um valor válido.");
-      return;
-    }
-    setSalvandoExtra(true);
-    setErroExtra("");
-    try {
-      const { error } = await supabase.from("servicos_extras_agendamento").insert({
-        agendamento_id: ag.id,
-        pet_id: ag.pet_id,
-        servico_id: servico.id,
-        nome_servico: servico.nome,
-        valor: numero,
-        pagamento_status: "Pendente",
-      });
-      if (error) throw error;
-      setServicoExtraId("");
-      setValorExtra("");
-      await carregarExtrasAgendamento(ag.id);
-    } catch (e: unknown) {
-      setErroExtra(e instanceof Error ? e.message : "Não foi possível adicionar o serviço extra.");
-    } finally {
-      setSalvandoExtra(false);
-    }
-  }
-
-  async function cancelarExtraAgendamento(extra: ExtraAgendamento) {
-    if (!ehAdmin || !agendamentoSelecionado || salvandoExtra || extra.pagamento_status !== "Pendente") return;
-    if (!window.confirm(`Cancelar o adicional "${extra.nome_servico}"? O registro será mantido no histórico.`)) return;
-    setSalvandoExtra(true);
-    setErroExtra("");
-    try {
-      const { data, error } = await supabase.from("servicos_extras_agendamento")
-        .update({ pagamento_status: "Cancelado" })
-        .eq("id", extra.id)
-        .eq("pagamento_status", "Pendente")
-        .select("id");
-      if (error) throw error;
-      if (!data?.length) throw new Error("O adicional não está mais pendente. Atualize e confira.");
-      await carregarExtrasAgendamento(agendamentoSelecionado.id);
-    } catch (e: unknown) {
-      setErroExtra(e instanceof Error ? e.message : "Não foi possível cancelar o adicional.");
-    } finally {
-      setSalvandoExtra(false);
-    }
-  }
-
   function abrirEdicao(agendamento: Agendamento) {
     setAgendamentoSelecionado(agendamento);
-    setExtrasAgenda([]);
     setServicoExtraId("");
     setValorExtra("");
     setErroExtra("");
-    if (ehAdmin) void carregarExtrasAgendamento(agendamento.id);
     setPetSelecionado(agendamento.pet_id);
 
     const pet = pets.find((item) => item.id === agendamento.pet_id);
@@ -1250,13 +891,62 @@ export default function AgendaPage() {
     setObservacoes(agendamento.observacoes || "");
 
     setValorAgendamento(
-      valorSugerido(agendamento) !== null
-        ? String(valorSugerido(agendamento)).replace(".", ",")
+      agendamento.valor_total !== null
+        ? String(agendamento.valor_total).replace(".", ",")
         : ""
     );
 
     setModoReagendamento("unico");
     setModalAgendamento(true);
+  }
+
+  // Adicionais pertencem ao banho, sem modificar o preço ou o pagamento do ciclo.
+  async function adicionarExtraAgendamento() {
+    const ag = agendamentoSelecionado;
+    if (!ehAdmin || !ag || salvandoExtra) return;
+    const servico = servicos.find(item => item.id === servicoExtraId);
+    const texto = valorExtra.trim().replace(",", ".");
+    const valor = Number(texto);
+    if (!servico || !texto || !Number.isFinite(valor) || valor < 0) {
+      setErroExtra("Selecione o serviço e informe um valor válido.");
+      return;
+    }
+    setSalvandoExtra(true);
+    setErroExtra("");
+    try {
+      const { error } = await supabase.from("servicos_extras_agendamento").insert({
+        agendamento_id: ag.id, pet_id: ag.pet_id, servico_id: servico.id,
+        nome_servico: servico.nome, valor, pagamento_status: "Pendente",
+      });
+      if (error) throw error;
+      setServicoExtraId("");
+      setValorExtra("");
+      await carregarDados();
+    } catch (erro) {
+      setErroExtra(erro instanceof Error ? erro.message : "Não foi possível salvar o adicional.");
+    } finally {
+      setSalvandoExtra(false);
+    }
+  }
+
+  async function cancelarExtraAgendamento(extra: ExtraComprovante) {
+    if (!ehAdmin || !agendamentoSelecionado || salvandoExtra || extra.pagamento_status !== "Pendente") return;
+    if (!window.confirm(`Cancelar o adicional "${extra.nome_servico}"? O registro permanecerá no histórico.`)) return;
+    setSalvandoExtra(true);
+    setErroExtra("");
+    try {
+      const { data, error } = await supabase.from("servicos_extras_agendamento")
+        .update({ pagamento_status: "Cancelado" })
+        .eq("id", extra.id).eq("agendamento_id", agendamentoSelecionado.id)
+        .eq("pagamento_status", "Pendente").select("id");
+      if (error) throw error;
+      if (!data?.length) throw new Error("O adicional não está mais pendente. Atualize a Agenda.");
+      await carregarDados();
+    } catch (erro) {
+      setErroExtra(erro instanceof Error ? erro.message : "Não foi possível cancelar o adicional.");
+    } finally {
+      setSalvandoExtra(false);
+    }
   }
 
   function fecharModalAgendamento() {
@@ -1356,15 +1046,7 @@ export default function AgendaPage() {
     }
 
     if (agendamentoSelecionado && estaConcluido(agendamentoSelecionado)) {
-      if (!ehAdmin) return;
-      if (dataAgendamento !== agendamentoSelecionado.data ||
-          formatarHorario(horarioAgendamento) !== formatarHorario(agendamentoSelecionado.horario) ||
-          observacoes !== (agendamentoSelecionado.observacoes || "")) {
-        alert("Em banhos concluídos, somente o valor pode ser alterado.");
-        return;
-      }
-      const ok = await salvarCorrecaoValor(agendamentoSelecionado, valorAgendamento);
-      if (ok) { setModalAgendamento(false); setAgendamentoSelecionado(null); }
+      alert("Um banho concluído não pode ser reagendado.");
       return;
     }
     if (agendamentoSelecionado && modoReagendamento === "ciclo") {
@@ -1388,9 +1070,8 @@ export default function AgendaPage() {
         (item) => item.id === servicoSelecionado
       );
 
-      const valor = agendamentoSelecionado
-        ? agendamentoSelecionado.valor_total
-        : !ehAdmin
+      const valor =
+        !ehAdmin && !agendamentoSelecionado
           ? (servico?.preco ?? null)
           : valorAgendamento.trim() === ""
             ? null
@@ -1401,23 +1082,20 @@ export default function AgendaPage() {
         return;
       }
 
-      // Na edição/reagendamento, serviço, pet e valor são preservados exatamente
-      // como foram registrados. A agenda não deve recalcular preços do cadastro
-      // nem substituir o serviço específico do banho (ex.: 2º banho sem higiênica).
-      const dadosBase = agendamentoSelecionado
-        ? {
-            horario: formatarHorario(horarioAgendamento),
-            observacoes: observacoes || null,
-          }
-        : {
-            pet_id: petSelecionado,
-            servico_id: servicoSelecionado || null,
-            horario: formatarHorario(horarioAgendamento),
-            status: "Agendado",
-            observacoes: observacoes || null,
-            valor_total: valor,
-            servico_nome: servico?.nome || null,
-          };
+      const dadosBase = {
+        pet_id: petSelecionado,
+        servico_id: servicoSelecionado || null,
+        horario: formatarHorario(horarioAgendamento),
+        status: agendamentoSelecionado
+          ? agendamentoSelecionado.status || "Agendado"
+          : "Agendado",
+        observacoes: observacoes || null,
+        ...(ehAdmin || !agendamentoSelecionado ? { valor_total: valor } : {}),
+        servico_nome:
+          agendamentoSelecionado && agendamentoSelecionado.servico_id === servicoSelecionado
+            ? agendamentoSelecionado.servico_nome || servico?.nome || null
+            : servico?.nome || agendamentoSelecionado?.servico_nome || null,
+      };
 
       if (agendamentoSelecionado) {
         if (modoReagendamento === "ciclo" && cicloIdentificado) {
@@ -1480,9 +1158,6 @@ export default function AgendaPage() {
 
             registros.push({
               ...dadosBase,
-              servico_nome: ajustarServicoPorBanho(
-                dadosBase.servico_nome, frequenciaAgendamento, i + 1
-              ) || null,
               data,
               plano: frequenciaAgendamento,
               numero_banho: i + 1,
@@ -1498,15 +1173,6 @@ export default function AgendaPage() {
         if (resposta.error) throw resposta.error;
       }
 
-      if (agendamentoSelecionado && ehAdmin &&
-          valorAgendamento.trim() !== "" &&
-          Number(valorAgendamento.replace(",", ".")) !== agendamentoSelecionado.valor_total) {
-        const ok = await salvarCorrecaoValor(agendamentoSelecionado, valorAgendamento);
-        if (!ok) {
-          alert("As alterações do agendamento podem ter sido salvas, mas o valor não foi confirmado. Confira antes de continuar.");
-          return;
-        }
-      }
       setModalAgendamento(false);
       setAgendamentoSelecionado(null);
       setMostrarSugestoesPet(false);
@@ -1521,12 +1187,12 @@ export default function AgendaPage() {
           `Pacote ${frequenciaAgendamento.toLowerCase()} criado com sucesso! ${quantidade} agendamentos foram registrados.`
         );
       }
-    } catch (erro: unknown) {
+    } catch (erro: any) {
       console.error("Erro ao salvar agendamento:", erro);
 
       alert(
         "Não foi possível salvar o agendamento.\n\n" +
-          ((erro instanceof Error ? erro.message : null) || "Verifique os dados e tente novamente.")
+          (erro?.message || "Verifique os dados e tente novamente.")
       );
     } finally {
       setSalvando(false);
@@ -1619,9 +1285,9 @@ export default function AgendaPage() {
       setAgendamentoSelecionado(null);
       await carregarDados();
       alert("Comparecimento desfeito. O banho voltou para Agendado.");
-    } catch (erro: unknown) {
+    } catch (erro: any) {
       console.error("Erro ao desfazer comparecimento:", erro);
-      alert((erro instanceof Error ? erro.message : null) || "Não foi possível desfazer o comparecimento.");
+      alert(erro?.message || "Não foi possível desfazer o comparecimento.");
       await carregarDados();
     } finally {
       setSalvando(false);
@@ -1664,21 +1330,11 @@ export default function AgendaPage() {
       if (atualizacao.error) {
         throw new Error("O atendimento foi registrado, mas o status não foi atualizado. Atualize a página e confira antes de tentar novamente.");
       }
-      // Atualização local: mantém a lista montada, a posição de rolagem e a ordem.
-      setAgendamentos(anteriores => anteriores.map(item =>
-        item.id === ag.id ? { ...item, status: "Concluído" } : item
-      ));
-      setAtendimentos(anteriores => [...anteriores, {
-        id: insercao.data![0].id,
-        agendamento_id: ag.id,
-        pet_id: ag.pet_id,
-        data: ag.data,
-        valor: ehAdmin ? (ag.valor_total ?? 0) : null,
-        forma_pagamento: null,
-      }]);
-    } catch (erro: unknown) {
+      await carregarDados();
+    } catch (erro: any) {
       console.error("Erro ao concluir atendimento:", erro);
-      alert((erro instanceof Error ? erro.message : null) || "Não foi possível concluir o atendimento.");
+      alert(erro?.message || "Não foi possível concluir o atendimento.");
+      await carregarDados();
     } finally {
       registroAtendimentoEmAndamento.current = false;
       setSalvando(false);
@@ -1758,10 +1414,7 @@ export default function AgendaPage() {
         `${item.petNome || ""} ${item.tutorNome || ""}`.toLocaleLowerCase("pt-BR").includes(buscaAgenda.trim().toLocaleLowerCase("pt-BR"))
     )
     .sort((a, b) =>
-      formatarHorario(a.horario).localeCompare(formatarHorario(b.horario)) ||
-      (a.tutorNome || "").localeCompare(b.tutorNome || "", "pt-BR") ||
-      (a.petNome || "").localeCompare(b.petNome || "", "pt-BR") ||
-      a.id.localeCompare(b.id)
+      formatarHorario(a.horario).localeCompare(formatarHorario(b.horario))
     );
 
   const agendamentosManha = agendamentosDoDia.filter(
@@ -1835,213 +1488,10 @@ export default function AgendaPage() {
     return grupos;
   }
 
-  // Agenda de trabalho do SPA: somente informações operacionais.
-  // A imagem é copiada, não salva no computador.
-  async function compartilharAgendaImagem() {
-    const lista = agendamentos
-      .filter((a) => a.data === dataSelecionada && !estaCancelado(a))
-      .sort((a, b) =>
-        formatarHorario(a.horario).localeCompare(formatarHorario(b.horario)) ||
-        (a.tutorNome || "").localeCompare(b.tutorNome || "", "pt-BR") ||
-        (a.petNome || "").localeCompare(b.petNome || "", "pt-BR")
-      );
-
-    if (!lista.length) {
-      alert("Não há pets agendados nesta data para compartilhar.");
-      return;
-    }
-
-    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-      alert("Abra a Agenda no Chrome em localhost ou HTTPS para copiar a imagem.");
-      return;
-    }
-
-    // A logo oficial já é utilizada na impressão térmica do sistema.
-    const logo = new Image();
-    const logoCarregada = await new Promise<boolean>((resolve) => {
-      let terminou = false;
-      const finalizar = (ok: boolean) => {
-        if (!terminou) { terminou = true; resolve(ok); }
-      };
-      logo.onload = () => finalizar(true);
-      logo.onerror = () => finalizar(false);
-      logo.src = "/logo-agrominas-impressao.png";
-      if (logo.complete) finalizar(logo.naturalWidth > 0);
-    });
-
-    const largura = 1500;
-    const margem = 42;
-    const larguraTabela = largura - margem * 2;
-    const larguras = [46, 265, 170, 180, 440, 315];
-    const titulos = ["#", "TUTOR", "PET", "PLANO / BANHO", "SERVIÇO A REALIZAR", "OBSERVAÇÕES"];
-    const ctxMedida = document.createElement("canvas").getContext("2d");
-    if (!ctxMedida) { alert("Não foi possível preparar a imagem."); return; }
-
-    const linhasTexto = (ctx: CanvasRenderingContext2D, texto: string, larguraMax: number) => {
-      const palavras = (texto || "—").trim().split(/\s+/);
-      const linhas: string[] = [];
-      let linha = "";
-      for (const palavra of palavras) {
-        const proposta = linha ? `${linha} ${palavra}` : palavra;
-        if (ctx.measureText(proposta).width > larguraMax && linha) {
-          linhas.push(linha);
-          linha = palavra;
-        } else {
-          linha = proposta;
-        }
-      }
-      if (linha) linhas.push(linha);
-      return linhas.length ? linhas : ["—"];
-    };
-
-    type LinhaAgenda = { ag: Agendamento; altura: number; textos: string[][] };
-    type TurnoAgenda = { titulo: string; horario: string; linhas: LinhaAgenda[] };
-    const turnos: TurnoAgenda[] = [
-      { titulo: "MANHÃ", horario: "08:30", linhas: [] },
-      { titulo: "TARDE", horario: "13:30", linhas: [] },
-    ];
-
-    for (const ag of lista) {
-      const plano = ag.plano === "Mensal" || ag.plano === "Quinzenal" ? ag.plano : "Avulso";
-      const banho = ag.numero_banho ? `${ag.numero_banho}º${ag.ciclo && ag.ciclo > 1 ? ` / C${ag.ciclo}` : ""}` : "1º";
-      const textosBase = ["", ag.tutorNome || "Tutor não informado", ag.petNome || "Pet",
-        `${plano} • ${banho}`, obterNomeServico(ag), ag.observacoes?.trim() || "—"];
-      const textos = textosBase.map((texto, i) => {
-        ctxMedida.font = `${i === 1 || i === 2 ? "bold " : ""}22px Arial, sans-serif`;
-        return linhasTexto(ctxMedida, texto, larguras[i] - 22);
-      });
-      const maiorNumeroLinhas = Math.max(1, ...textos.map((item) => item.length));
-      const altura = Math.max(68, maiorNumeroLinhas * 30 + 24);
-      turnos[obterTurno(ag.horario) === "Manhã" ? 0 : 1].linhas.push({ ag, altura, textos });
-    }
-
-    const alturaCabecalho = 180;
-    const alturaTituloTurno = 70;
-    const alturaCabecalhoTabela = 46;
-    const espacoTurnos = 18;
-    const alturaRodape = 120;
-    const alturaTotal = alturaCabecalho + 28 + turnos.reduce((soma, turno) =>
-      soma + alturaTituloTurno + alturaCabecalhoTabela +
-      (turno.linhas.length ? turno.linhas.reduce((acc, linha) => acc + linha.altura, 0) : 70) +
-      espacoTurnos, 0) + alturaRodape;
-
-    // Não corta informações: se a imagem ultrapassar o limite de altura, informa o usuário.
-    if (alturaTotal > 14000) {
-      alert("A agenda deste dia é grande demais para copiar em uma única imagem. Entre em contato para habilitar a divisão em páginas.");
-      return;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = largura;
-    canvas.height = alturaTotal;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) { alert("Não foi possível desenhar a imagem."); return; }
-
-    const bloco = (x: number, y: number, w: number, h: number, cor: string) => {
-      ctx.fillStyle = cor;
-      ctx.fillRect(x, y, w, h);
-    };
-    const escrever = (texto: string, x: number, y: number, cor: string, fonte: string) => {
-      ctx.fillStyle = cor;
-      ctx.font = fonte;
-      ctx.fillText(texto, x, y);
-    };
-    const arredondado = (x: number, y: number, w: number, h: number, raio: number, cor: string) => {
-      ctx.beginPath();
-      ctx.roundRect(x, y, w, h, raio);
-      ctx.fillStyle = cor;
-      ctx.fill();
-    };
-
-    bloco(0, 0, largura, alturaTotal, "#f8fbfa");
-    bloco(0, 0, largura, alturaCabecalho, "#064e3b");
-
-    // A logo original é mantida em seu fundo branco, sem modificar suas cores.
-    if (logoCarregada) {
-      arredondado(margem, 24, 155, 132, 14, "#ffffff");
-      const escala = Math.min(139 / logo.naturalWidth, 119 / logo.naturalHeight);
-      const w = logo.naturalWidth * escala;
-      const h = logo.naturalHeight * escala;
-      ctx.drawImage(logo, margem + (155 - w) / 2, 24 + (132 - h) / 2, w, h);
-    } else {
-      escrever("AG", margem + 24, 105, "#ffffff", "bold 55px Arial, sans-serif");
-    }
-    escrever("AGROMINAS", 220, 83, "#ffffff", "bold 53px Arial, sans-serif");
-    escrever("BANHO E TOSA", 223, 121, "#a7f3d0", "bold 25px Arial, sans-serif");
-    bloco(650, 36, 2, 107, "#6ee7b7");
-    escrever("AGENDA DO DIA", 690, 80, "#ffffff", "bold 48px Arial, sans-serif");
-    escrever(nomeDiaSelecionado, 692, 121, "#d1fae5", "26px Arial, sans-serif");
-    escrever("PROGRAMAÇÃO DA EQUIPE DO SPA", 692, 151, "#a7f3d0", "bold 18px Arial, sans-serif");
-
-    let y = alturaCabecalho + 28;
-    for (const turno of turnos) {
-      arredondado(margem, y, larguraTabela, 60, 12, "#d1fae5");
-      escrever(`${turno.titulo}  •  ${turno.horario}`, margem + 20, y + 40, "#064e3b", "bold 30px Arial, sans-serif");
-      const totalTurno = `${turno.linhas.length} ${turno.linhas.length === 1 ? "PET" : "PETS"}`;
-      ctx.font = "bold 23px Arial, sans-serif";
-      const larguraSelo = Math.max(125, ctx.measureText(totalTurno).width + 42);
-      arredondado(largura - margem - larguraSelo - 15, y + 10, larguraSelo, 40, 20, "#059669");
-      escrever(totalTurno, largura - margem - larguraSelo + 6, y + 38, "#ffffff", "bold 23px Arial, sans-serif");
-      y += alturaTituloTurno;
-
-      bloco(margem, y, larguraTabela, alturaCabecalhoTabela, "#065f46");
-      let x = margem;
-      titulos.forEach((titulo, i) => {
-        escrever(titulo, x + 10, y + 31, "#ffffff", "bold 17px Arial, sans-serif");
-        x += larguras[i];
-      });
-      y += alturaCabecalhoTabela;
-
-      if (!turno.linhas.length) {
-        bloco(margem, y, larguraTabela, 70, "#ffffff");
-        escrever("Nenhum pet agendado neste turno", margem + 20, y + 45, "#64748b", "23px Arial, sans-serif");
-        y += 70;
-      }
-      turno.linhas.forEach((linha, indice) => {
-        bloco(margem, y, larguraTabela, linha.altura, indice % 2 ? "#eef5f3" : "#ffffff");
-        bloco(margem, y + linha.altura - 1, larguraTabela, 1, "#dbe8e3");
-        let x = margem;
-        larguras.forEach((larguraColuna, coluna) => {
-          if (coluna) bloco(x, y, 1, linha.altura, "#e2e8e5");
-          if (coluna === 0) {
-            escrever(String(indice + 1), x + 15, y + 36, "#334155", "bold 22px Arial, sans-serif");
-          } else {
-            linha.textos[coluna].forEach((texto, indiceTexto) => {
-              escrever(texto, x + 10, y + 33 + indiceTexto * 30,
-                coluna === 2 ? "#065f46" : coluna === 4 ? "#0f172a" : coluna === 5 && texto !== "—" ? "#065f46" : "#334155",
-                `${coluna === 1 || coluna === 2 || coluna === 4 || (coluna === 5 && texto !== "—") ? "bold " : ""}22px Arial, sans-serif`);
-            });
-          }
-          x += larguraColuna;
-        });
-        y += linha.altura;
-      });
-      y += espacoTurnos;
-    }
-
-    arredondado(margem, y + 10, 345, 78, 13, "#d1fae5");
-    escrever("TOTAL DO DIA", margem + 20, y + 40, "#065f46", "bold 22px Arial, sans-serif");
-    escrever(`${lista.length} ${lista.length === 1 ? "PET" : "PETS"}`, margem + 20, y + 75, "#064e3b", "bold 34px Arial, sans-serif");
-    escrever("AGROMINAS  •  USO INTERNO DA EQUIPE", 820, y + 61, "#64748b", "bold 21px Arial, sans-serif");
-
-    try {
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-      if (!blob) throw new Error("A imagem não pôde ser gerada.");
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-      alert("Agenda copiada! Abra o grupo das meninas no WhatsApp, pressione Ctrl + V e envie.");
-    } catch (erro) {
-      console.error("Erro ao copiar agenda:", erro);
-      alert("Não foi possível copiar a agenda. Confira a permissão da área de transferência no Chrome.");
-    }
-  }
-
   function renderPetDoGrupo(agendamento: Agendamento) {
-    const extrasDoBanho = todosExtras.filter(e => e.agendamento_id === agendamento.id && e.pagamento_status !== "Cancelado");
-    const totalExtrasBanho = extrasDoBanho.reduce((t, e) => t + Number(e.valor || 0), 0);
     const concluido = estaConcluido(agendamento);
     const cancelado = estaCancelado(agendamento);
     const pagamento = ehAdmin ? obterPagamentoDoCiclo(agendamento) : null;
-    const rotuloPagamento = !pagamento ? null : pagamento.texto === "PAGO" ? "Pago" : pagamento.texto === "A CONFERIR" ? "A conferir" : "Em aberto";
 
     const pet = pets.find(
       (item) => item.id === agendamento.pet_id
@@ -2052,22 +1502,19 @@ export default function AgendaPage() {
     return (
       <div
         key={agendamento.id}
-        className={`rounded-2xl border border-l-4 p-5 shadow-sm transition-all hover:shadow-md md:p-6 ${cancelado ? "border-rose-200 border-l-rose-400 bg-rose-50/70 opacity-80" : concluido ? "border-emerald-200 border-l-emerald-500 bg-emerald-50/50" : "border-slate-200 border-l-amber-400 bg-white"}`}
+        className={`rounded-2xl border-l-4 p-4 shadow-sm transition hover:shadow-md ${cancelado ? "border-rose-400 bg-rose-50/70 opacity-80" : concluido ? "border-emerald-500 bg-emerald-50/60" : "border-amber-400 bg-white"}`}
       >
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-lg text-emerald-700 shadow-sm ring-1 ring-emerald-100">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-lg text-emerald-700">
               🐾
             </div>
 
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h4 className="text-base font-extrabold tracking-tight text-slate-900">
+                <h4 className="font-semibold text-emerald-950">
                   {agendamento.petNome || "Pet"}
                 </h4>
-                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-extrabold tracking-wide ${agendamento.plano === "Mensal" ? "border-violet-200 bg-violet-50 text-violet-700" : agendamento.plano === "Quinzenal" ? "border-sky-200 bg-sky-50 text-sky-700" : "border-slate-200 bg-slate-100 text-slate-700"}`}>
-                  {agendamento.plano === "Mensal" || agendamento.plano === "Quinzenal" ? agendamento.plano : "Avulso"}
-                </span>
 
                 <span
                   className={
@@ -2078,14 +1525,13 @@ export default function AgendaPage() {
                         : "rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800"
                   }
                 >
-                  {cancelado ? "Cancelado" : concluido ? "Compareceu" : "Ainda não veio"}
+                  {cancelado ? "Cancelado" : concluido ? "Concluído" : "Pendente"}
                 </span>
-                {rotuloPagamento && (
-                  <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-extrabold ${pagamento?.texto === "PAGO" ? "border-emerald-200 bg-emerald-100 text-emerald-800" : pagamento?.texto === "A CONFERIR" ? "border-yellow-300 bg-yellow-50 text-yellow-900" : "border-orange-200 bg-orange-100 text-orange-800"}`}>
-                    {pagamento?.texto === "PAGO" ? "✓ " : pagamento?.texto === "A CONFERIR" ? "⚠ " : "○ "}{rotuloPagamento}
-                  </span>
-                )}
               </div>
+
+              <p className="mt-1 break-words text-sm text-gray-500">
+                {pet?.raca?.trim() ? `Raça: ${pet.raca.trim()}` : "Raça não informada"}
+              </p>
 
               {identificacao && (
                 <p className="mt-1 text-sm font-semibold text-emerald-700">
@@ -2093,29 +1539,15 @@ export default function AgendaPage() {
                 </p>
               )}
 
-              <p className="mt-2 text-sm font-semibold text-slate-700">🛁 {obterNomeServico(agendamento)}</p>
-              {ehAdmin && <p className="mt-1 text-sm text-slate-600">{ehPlano(agendamento) ? "Valor do ciclo" : "Valor do atendimento"}: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(pagamento.valor)}</strong></p>}
-              {ehAdmin && extrasDoBanho.length > 0 && (
-                <div className="mt-1 space-y-1 text-sm text-slate-600">
-                  {extrasDoBanho.map(extra => (
-                    <p key={extra.id}>
-                      + {extra.nome_servico}: <strong>{formatarValor(Number(extra.valor))}</strong>
-                      <span className="text-xs text-slate-500"> · {extra.pagamento_status}</span>
-                    </p>
-                  ))}
-                  <p className="font-semibold text-slate-700">
-                    Total geral: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(Number(pagamento.valor) + totalExtrasBanho)}</strong>
-                  </p>
-                </div>
-              )}
-              {agendamento.observacoes?.trim() && (
-                <p className="mt-2 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700">📝 {agendamento.observacoes.trim()}</p>
-              )}
+              <p className="mt-1 text-sm text-gray-600">
+                {obterNomeServico(agendamento)} •{" "}
+                {formatarValor(agendamento.valor_total)}
+              </p>
 
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 border-t border-slate-200/80 pt-4">
+          <div className="flex flex-wrap gap-2">
             {ehAdmin && pagamento && <button
               type="button"
               disabled={cancelado}
@@ -2124,7 +1556,7 @@ export default function AgendaPage() {
                   agendamento,
                   obterNomeServico(agendamento),
                   pagamento,
-                  extrasDoBanho
+                  extrasComprovantes.filter(extra => extra.agendamento_id === agendamento.id)
                 )
               }
               className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
@@ -2134,12 +1566,33 @@ export default function AgendaPage() {
 
             <button
               type="button"
+              onClick={() =>
+                abrirWhatsApp(
+                  "pronto",
+                  agendamento.whatsapp || "",
+                  agendamento.petNome || "Pet",
+                  agendamento.tutorNome || "Tutor",
+                  formatarHorario(agendamento.horario),
+                  pet?.sexo || null,
+                  obterNomeServico(agendamento),
+                  agendamento.data
+                )
+              }
+              disabled={!agendamento.whatsapp || cancelado || !concluido}
+              className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              🐶 Pet pronto
+            </button>
+
+            <button
+              type="button"
               onClick={() => abrirEdicao(agendamento)}
               disabled={cancelado || (concluido && !ehAdmin)}
               className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Editar / Reagendar
             </button>
+
             {!concluido && !cancelado && (
               <button
                 type="button"
@@ -2180,16 +1633,16 @@ export default function AgendaPage() {
     return (
       <div
         key={grupo.chave}
-        className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4 shadow-sm md:p-5"
+        className="rounded-3xl border border-emerald-100 bg-emerald-50/40 p-5 shadow-sm"
       >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-xl shadow-sm">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-xl shadow-sm">
               👤
             </div>
 
             <div>
-              <h4 className="text-base font-extrabold text-slate-900">
+              <h4 className="font-semibold text-emerald-950">
                 {grupo.tutorNome}
               </h4>
 
@@ -2201,34 +1654,29 @@ export default function AgendaPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {(() => {
-              const ativos = grupo.agendamentos.filter(a => !estaCancelado(a));
-              const todosProntos = ativos.length > 0 && ativos.every(estaConcluido);
-              const renovaveis = ativos.filter(a => podeRenovarCiclo(a));
-              const avisaveis = ativos.filter(ehPrimeiroBanhoDeRenovacao);
-              return <>
-                {todosProntos && <button type="button"
-                  disabled={!grupo.whatsapp}
-                  onClick={() => avisarPetsProntos(grupo.whatsapp, grupo.tutorNome,
-                    ativos.map(a => ({ nome: a.petNome || "Pet", sexo: pets.find(p => p.id === a.pet_id)?.sexo || null })))}
-                  className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-40">
-                  🐶 {ativos.length > 1 ? "Pets prontos" : "Pet pronto"}
-                </button>}
-                {avisaveis.length > 0 && <button type="button"
-                  disabled={!grupo.whatsapp}
-                  onClick={() => avisarRenovacaoWhatsApp(grupo)}
-                  className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-900 hover:bg-sky-100 disabled:opacity-40">
-                  📲 Enviar renovação
-                </button>}
-                {renovaveis.length > 0 && <button type="button"
-                  disabled={salvandoRenovacao}
-                  onClick={() => abrirRenovacaoGrupo(grupo)}
-                  className="rounded-xl border border-emerald-600 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">
-                  🔄 Renovar {renovaveis.length > 1 ? "ciclos" : "ciclo"}
-                </button>}
-              </>;
-            })()}
-            {grupo.agendamentos.filter(a => !estaCancelado(a)).length > 1 && (
+            {ehAdmin && grupo.agendamentos.some(podeRenovarCiclo) && (
+              <button type="button" disabled={salvandoRenovacao}
+                onClick={() => abrirRenovacaoGrupo(grupo)}
+                className="rounded-xl border border-emerald-600 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50">
+                🔄 Renovar ciclo
+              </button>
+            )}
+            {grupo.agendamentos.some(a => ehPlano(a) && Number(a.numero_banho) === 1 && !estaCancelado(a)) && (
+              <button type="button" disabled={!grupo.whatsapp}
+                onClick={() => {
+                  const itens = grupo.agendamentos.filter(a => ehPlano(a) && Number(a.numero_banho) === 1 && !estaCancelado(a));
+                  const linhas = itens.map(a => {
+                    const ciclo = agendamentos.filter(b => b.pet_id === a.pet_id && b.ciclo === a.ciclo && !estaCancelado(b))
+                      .sort((x,y) => Number(x.numero_banho) - Number(y.numero_banho));
+                    return `${a.petNome || "Pet"} — Plano ${a.plano}\n${ciclo.map(b => `${b.numero_banho}º banho: ${formatarDataLocal(b.data)} às ${formatarHorario(b.horario)}`).join("\n")}`;
+                  });
+                  abrirMensagemWhatsApp(grupo.whatsapp, `Olá, ${grupo.tutorNome}! Passando para lembrar do pacote de banhos no SPA PET AGROMINAS.\n\n${linhas.join("\n\n")}`);
+                }}
+                className="rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-sky-800 disabled:opacity-40">
+                📲 Enviar renovação
+              </button>
+            )}
+            {ehAdmin && grupo.agendamentos.filter(a => !estaCancelado(a)).length > 1 && (
               <button
                 type="button"
                 onClick={() => imprimirComprovanteGrupo(
@@ -2243,16 +1691,19 @@ export default function AgendaPage() {
                       servicoNome: obterNomeServico(agendamento),
                       identificacao: obterIdentificacaoBanho(agendamento),
                       valor: pagamento.valor ?? agendamento.valor_total,
+                      recebido: pagamento.recebido,
+                      credito: pagamento.credito,
+                      saldo: pagamento.saldo,
+                      texto: pagamento.texto,
+                      extras: extrasComprovantes.filter(extra => extra.agendamento_id === agendamento.id),
                       pago: pagamento.pago,
                       forma: pagamento.forma,
                       plano,
                       tipoPlano: agendamento.plano,
                       ciclo: agendamento.ciclo,
                       petId: agendamento.pet_id,
-                      extras: todosExtras.filter(e => e.agendamento_id === agendamento.id),
                     };
-                  }),
-                  ehAdmin
+                  })
                 )}
                 className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800"
               >
@@ -2293,253 +1744,282 @@ export default function AgendaPage() {
     year: "numeric",
   });
 
-  const agendamentosAtivosDoDia = agendamentos.filter(
-    (item) => item.data === dataSelecionada && !estaCancelado(item)
-  );
-  const totalDia = agendamentosAtivosDoDia.length;
-  const concluidosDia = agendamentosAtivosDoDia.filter(estaConcluido).length;
-  const pendentesDia = totalDia - concluidosDia;
-  const pagosDia = ehAdmin ? agendamentosAtivosDoDia.filter(
-    (item) => obterPagamentoDoCiclo(item).texto === "PAGO"
-  ).length : 0;
-  const abertosDia = ehAdmin ? agendamentosAtivosDoDia.filter(
-    (item) => obterPagamentoDoCiclo(item).texto === "NÃO PAGO"
-  ).length : 0;
-  const conferirDia = ehAdmin ? agendamentosAtivosDoDia.filter(
-    (item) => obterPagamentoDoCiclo(item).texto === "A CONFERIR"
-  ).length : 0;
-  const planosDia = agendamentosAtivosDoDia.filter(
-    (item) => item.plano === "Mensal" || item.plano === "Quinzenal"
-  ).length;
-  const nomeDiaSelecionado = (() => {
-    const [ano, mes, dia] = dataSelecionada.split("-").map(Number);
-    return new Date(ano, mes - 1, dia).toLocaleDateString("pt-BR", {
-      weekday: "long", day: "numeric", month: "long", year: "numeric"
-    });
-  })();
-  const quantidadePorDia = new Map<string, number>();
-  agendamentos.forEach((item) => {
-    if (!estaCancelado(item)) quantidadePorDia.set(item.data, (quantidadePorDia.get(item.data) || 0) + 1);
-  });
-
   return (
-    <main className="min-h-screen bg-[#f5f7f8]">
+    <main className="min-h-screen bg-[#f3f8f5]">
       <div className="flex min-h-screen">
         <MenuLateral />
 
-        <section className="min-w-0 flex-1 px-4 py-6 md:px-7 md:py-8 xl:px-10">
-          <div className="mx-auto max-w-[1560px]">
-            <header className="relative mb-6 overflow-hidden rounded-[28px] bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-800 p-6 text-white shadow-lg shadow-emerald-950/10 md:p-8">
-              <div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full border-[45px] border-white/5" />
-              <div className="pointer-events-none absolute -bottom-24 right-40 h-52 w-52 rounded-full bg-emerald-400/10 blur-2xl" />
-              <div className="relative flex flex-col gap-6">
-                <div>
-                  <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold tracking-[0.12em] text-emerald-50">
-                    🐾 SPA PET AGROMINAS <span className="text-emerald-300">/</span> BANHO E TOSA
-                  </p>
-                  <h1 className="text-3xl font-black tracking-tight md:text-4xl">Agenda de atendimentos</h1>
-                  <p className="mt-2 max-w-2xl text-sm text-emerald-100 md:text-base">Organize os pets, acompanhe os banhos e gerencie os planos em um só lugar.</p>
-                </div>
-                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                  <button type="button" onClick={() => void compartilharAgendaImagem()}
-                    disabled={carregando || totalDia === 0}
-                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/40 bg-white/15 px-5 py-3.5 text-sm font-extrabold text-white transition hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-40">
-                    📲 Compartilhar agenda
-                  </button>
-                  <button type="button" onClick={() => abrirNovoAgendamento()}
-                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-extrabold text-emerald-900 shadow-md transition hover:-translate-y-0.5 hover:bg-emerald-50 hover:shadow-lg">
-                    <span className="text-xl leading-none">+</span> Novo agendamento
-                  </button>
-                </div>
-              </div>
-            </header>
+        <section className="min-w-0 flex-1 p-4 md:p-8">
+          <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold tracking-wide text-emerald-800">🐾 SPA PET AGROMINAS</div>
+              <h2 className="text-3xl font-extrabold tracking-tight text-emerald-950">
+                Agenda
+              </h2>
 
-            <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
-              {[
-                { titulo: "Pets do dia", valor: totalDia, detalhe: "agendamentos ativos", icone: "🐾", cor: "bg-emerald-50 text-emerald-800" },
-                { titulo: "Ainda não vieram", valor: pendentesDia, detalhe: "aguardando atendimento", icone: "⏳", cor: "bg-amber-50 text-amber-800" },
-                { titulo: "Compareceram", valor: concluidosDia, detalhe: "atendimentos registrados", icone: "✓", cor: "bg-teal-50 text-teal-800" },
-                { titulo: "Em planos", valor: planosDia, detalhe: "quinzenais e mensais", icone: "✦", cor: "bg-violet-50 text-violet-800" },
-                ...(ehAdmin ? [
-                  { titulo: "Pagos", valor: pagosDia, detalhe: "pagamentos confirmados", icone: "✓", cor: "bg-emerald-50 text-emerald-800" },
-                  { titulo: "Em aberto", valor: abertosDia, detalhe: "pagamentos não registrados", icone: "R$", cor: "bg-orange-50 text-orange-800" },
-                  ...(conferirDia ? [{ titulo: "A conferir", valor: conferirDia, detalhe: "registros antigos sem confirmação", icone: "!", cor: "bg-yellow-50 text-yellow-800" }] : []),
-                ] : []),
-              ].map((indicador) => (
-                <div key={indicador.titulo} className="rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm md:p-5">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-xs font-bold text-slate-500 md:text-sm">{indicador.titulo}</span>
-                    <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-lg font-bold ${indicador.cor}`}>{indicador.icone}</span>
-                  </div>
-                  <div className="mt-2 text-3xl font-black tracking-tight text-slate-900">{carregando ? "—" : indicador.valor}</div>
-                  <p className="mt-1 text-xs text-slate-500">{indicador.detalhe}</p>
-                </div>
-              ))}
+              <p className="mt-1 text-gray-500">
+                Banhos, planos, reagendamentos e atendimentos em um só lugar.
+              </p>
             </div>
 
-            <div className="grid items-start gap-6 xl:grid-cols-[330px_minmax(0,1fr)]">
-              <aside className="space-y-4 xl:sticky xl:top-6">
-                <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-5 flex items-center justify-between gap-2">
-                    <button type="button" onClick={() => mudarMes(-1)} aria-label="Mês anterior"
-                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-lg text-slate-600 transition hover:bg-slate-50">‹</button>
-                    <h2 className="text-center text-base font-extrabold capitalize text-slate-900">{nomeMes}</h2>
-                    <button type="button" onClick={() => mudarMes(1)} aria-label="Próximo mês"
-                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-lg text-slate-600 transition hover:bg-slate-50">›</button>
-                  </div>
-                  <div className="mb-2 grid grid-cols-7 text-center text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                    {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((dia) => <span key={dia}>{dia}</span>)}
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {diasDoMes.map((dia, index) => {
-                      if (dia === null) return <div key={`vazio-${index}`} className="h-11" />;
-                      const data = `${mesAtual.getFullYear()}-${String(mesAtual.getMonth() + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
-                      const selecionado = data === dataSelecionada;
-                      const hoje = data === obterDataLocal();
-                      const quantidade = quantidadePorDia.get(data) || 0;
-                      return (
-                        <button key={data} type="button" onClick={() => selecionarDia(dia)}
-                          aria-label={`${formatarDataLocal(data)}${quantidade ? `, ${quantidade} pets agendados` : ""}`}
-                          aria-pressed={selecionado}
-                          className={`relative flex h-11 flex-col items-center justify-center rounded-xl text-sm transition ${selecionado ? "bg-emerald-700 font-extrabold text-white shadow-md shadow-emerald-700/20" : hoje ? "bg-emerald-50 font-extrabold text-emerald-800 ring-1 ring-emerald-200" : "font-medium text-slate-700 hover:bg-slate-100"}`}>
-                          {dia}
-                          {quantidade > 0 && <span className={`absolute bottom-1.5 h-1 w-1 rounded-full ${selecionado ? "bg-white" : "bg-emerald-500"}`} />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
-                    <span className="inline-flex items-center gap-2 text-xs font-medium text-slate-500"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Dias com agendamentos</span>
-                    <button type="button" onClick={irParaHoje} className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-extrabold text-emerald-800 transition hover:bg-emerald-100">Hoje</button>
-                  </div>
-                </div>
-                <div className="rounded-[22px] border border-emerald-100 bg-emerald-50 p-5">
-                  <p className="text-xs font-extrabold uppercase tracking-widest text-emerald-700">Horários de entrada</p>
-                  <div className="mt-4 flex items-center justify-between border-b border-emerald-200/70 pb-3"><span className="text-sm font-medium text-emerald-950">☀️ Manhã</span><strong className="text-emerald-950">08:30</strong></div>
-                  <div className="flex items-center justify-between pt-3"><span className="text-sm font-medium text-emerald-950">🌤️ Tarde</span><strong className="text-emerald-950">13:30</strong></div>
-                </div>
-              </aside>
+            <button
+              type="button"
+              disabled={carregando || Boolean(erroCarregamento) || !perfilUsuario}
+              onClick={() => abrirNovoAgendamento()}
+              className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-emerald-800"
+            >
+              + Novo agendamento
+            </button>
+          </div>
 
-              <div className="min-w-0 overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-100 px-5 py-5 md:px-7 md:py-6">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-700">Agenda do dia</p>
-                      <h2 className="mt-1 text-xl font-black capitalize tracking-tight text-slate-900 md:text-2xl">{nomeDiaSelecionado}</h2>
-                      <p className="mt-1 text-sm text-slate-500">{totalDia} {totalDia === 1 ? "pet agendado" : "pets agendados"} neste dia</p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button type="button" onClick={irParaDiaAnterior} aria-label="Dia anterior" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-xl text-slate-600 hover:bg-slate-50">‹</button>
-                      <button type="button" onClick={irParaHoje} className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 hover:bg-slate-50">Hoje</button>
-                      <button type="button" onClick={irParaProximoDia} aria-label="Próximo dia" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-xl text-slate-600 hover:bg-slate-50">›</button>
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <button type="button" onClick={() => void compartilharAgendaImagem()}
-                      disabled={carregando || totalDia === 0}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-extrabold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto">
-                      📲 Compartilhar agenda
-                    </button>
-                    <p className="mt-2 text-xs text-slate-500">Imagem para a equipe com tutor, pet, plano/banho, serviço e observações. Sem situação, dados financeiros ou telefone.</p>
-                  </div>
-                  <div className="relative mt-5">
-                    <label htmlFor="busca-agenda" className="sr-only">Buscar pet ou tutor neste dia</label>
-                    <span aria-hidden="true" className="pointer-events-none absolute left-4 top-3 text-lg text-slate-400">⌕</span>
-                    <input id="busca-agenda" type="search" value={buscaAgenda} onChange={(e) => setBuscaAgenda(e.target.value)}
-                      placeholder="Buscar pet ou tutor neste dia..." className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-100" />
-                  </div>
-                </div>
-                {carregando ? (
-                  <div className="p-12 text-center text-sm font-medium text-slate-500">Carregando agenda...</div>
-                ) : (
-                  <div className="space-y-8 px-4 py-6 md:px-7 md:py-7">
-                    {([
-                      { nome: "Manhã", horario: "08:30", icone: "☀️", lista: agendamentosManha, grupos: gruposManha },
-                      { nome: "Tarde", horario: "13:30", icone: "🌤️", lista: agendamentosTarde, grupos: gruposTarde },
-                    ] as const).map((turno) => (
-                      <section key={turno.nome}>
-                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-xl">{turno.icone}</span>
-                            <div><h3 className="text-lg font-black text-slate-900">{turno.nome}</h3><p className="text-xs font-semibold text-slate-500">Entrada às {turno.horario}</p></div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-extrabold text-slate-700">{turno.lista.length} {turno.lista.length === 1 ? "pet" : "pets"}</span>
-                            <button type="button" onClick={() => { abrirNovoAgendamento(dataSelecionada); setHorarioAgendamento(turno.horario); }}
-                              className="rounded-xl border border-emerald-200 px-3 py-2 text-xs font-extrabold text-emerald-800 transition hover:bg-emerald-50">+ Adicionar</button>
-                          </div>
-                        </div>
-                        {turno.grupos.length === 0 ? (
-                          <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-9 text-center">
-                            <div className="text-3xl">🐶</div>
-                            <p className="mt-2 text-sm font-bold text-slate-700">Nenhum pet agendado para este turno</p>
-                            <p className="mt-1 text-xs text-slate-500">Os novos agendamentos aparecerão aqui.</p>
-                          </div>
-                        ) : <div className="space-y-3">{turno.grupos.map(renderGrupoTutor)}</div>}
-                      </section>
-                    ))}
-                  </div>
+          <div className="grid gap-6 lg:grid-cols-[330px_minmax(0,1fr)]">
+            <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm md:p-6">
+              <div className="mb-5 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => mudarMes(-1)}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-gray-100"
+                  aria-label="Mês anterior"
+                >
+                  ←
+                </button>
+
+                <h3 className="font-bold capitalize text-emerald-950">
+                  {nomeMes}
+                </h3>
+
+                <button
+                  type="button"
+                  onClick={() => mudarMes(1)}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-gray-100"
+                  aria-label="Próximo mês"
+                >
+                  →
+                </button>
+              </div>
+
+              <div className="mb-2 grid grid-cols-7 text-center text-xs font-medium text-gray-400">
+                {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map(
+                  (dia) => (
+                    <span key={dia}>{dia}</span>
+                  )
                 )}
               </div>
+
+              <div className="grid grid-cols-7 gap-1">
+                {diasDoMes.map((dia, index) => {
+                  if (dia === null) {
+                    return (
+                      <div
+                        key={`vazio-${index}`}
+                        className="h-10"
+                      />
+                    );
+                  }
+
+                  const data = `${mesAtual.getFullYear()}-${String(
+                    mesAtual.getMonth() + 1
+                  ).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+
+                  const selecionado = data === dataSelecionada;
+                  const hoje = data === obterDataLocal();
+                  const temAgendamento = existeAgendamentoNoDia(dia);
+
+                  return (
+                    <button
+                      key={data}
+                      type="button"
+                      onClick={() => selecionarDia(dia)}
+                      className={
+                        "relative flex h-10 items-center justify-center rounded-lg text-sm " +
+                        (selecionado
+                          ? "bg-emerald-700 font-semibold text-white shadow-sm"
+                          : hoje
+                            ? "bg-emerald-50 font-semibold text-emerald-800"
+                            : "text-gray-700 hover:bg-emerald-50")
+                      }
+                    >
+                      {dia}
+
+                      {temAgendamento && (
+                        <span
+                          className={
+                            "absolute bottom-1 h-1 w-1 rounded-full " +
+                            (selecionado ? "bg-white" : "bg-emerald-600")
+                          }
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={irParaHoje}
+                className="mt-5 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Ir para hoje
+              </button>
+            </div>
+
+            <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm md:p-6">
+              <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">
+                    Dia selecionado
+                  </p>
+
+                  <h3 className="mt-1 text-2xl font-extrabold text-emerald-950">
+                    {formatarDataLocal(dataSelecionada)}
+                  </h3>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={irParaDiaAnterior}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                    aria-label="Dia anterior"
+                  >
+                    ←
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={irParaHoje}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+                  >
+                    Hoje
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={irParaProximoDia}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                    aria-label="Próximo dia"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+
+              <label htmlFor="busca-agenda" className="mb-2 block text-sm font-medium text-gray-700">Buscar pet ou tutor neste dia</label>
+              <input id="busca-agenda" type="search" value={buscaAgenda} onChange={e => setBuscaAgenda(e.target.value)} placeholder="Nome do pet ou tutor..." className="mb-6 w-full rounded-xl border border-emerald-200 bg-emerald-50/30 px-4 py-3 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+              {erroCarregamento ? (
+                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                  <p>{erroCarregamento}</p>
+                  <button type="button" onClick={() => void carregarDados()} className="mt-3 rounded-lg border border-red-300 px-3 py-2 font-semibold">
+                    Tentar novamente
+                  </button>
+                </div>
+              ) : carregando ? (
+                <div className="rounded-xl bg-gray-50 p-10 text-center text-gray-500">
+                  Carregando agenda...
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  <section>
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-semibold text-emerald-950">
+                          ☀️ Manhã
+                        </h4>
+
+                        <p className="text-sm text-gray-500">
+                          08:00 às 12:00
+                        </p>
+                      </div>
+
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                        {agendamentosManha.length}{" "}
+                        {agendamentosManha.length === 1 ? "pet" : "pets"}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {gruposManha.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center">
+                          <p className="text-sm text-gray-500">
+                            Nenhum pet agendado pela manhã.
+                          </p>
+                        </div>
+                      ) : (
+                        gruposManha.map(renderGrupoTutor)
+                      )}
+                    </div>
+                  </section>
+
+                  <section>
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-semibold text-emerald-950">
+                          🌤️ Tarde
+                        </h4>
+
+                        <p className="text-sm text-gray-500">
+                          13:30 às 17:30
+                        </p>
+                      </div>
+
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                        {agendamentosTarde.length}{" "}
+                        {agendamentosTarde.length === 1 ? "pet" : "pets"}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {gruposTarde.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center">
+                          <p className="text-sm text-gray-500">
+                            Nenhum pet agendado à tarde.
+                          </p>
+                        </div>
+                      ) : (
+                        gruposTarde.map(renderGrupoTutor)
+                      )}
+                    </div>
+                  </section>
+                </div>
+              )}
             </div>
           </div>
         </section>
       </div>
 
       {renovacao && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-[3px]">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl md:p-8">
-            <h3 className="text-xl font-extrabold text-emerald-950">🔄 Renovar ciclo</h3>
-            <p className="mt-2 text-sm text-gray-600">
-              Tutor: <strong>{tutorRenovacao?.nome || renovacao.tutorNome}</strong> • {renovacoesGrupo.length || 1} {(renovacoesGrupo.length || 1) === 1 ? "pet" : "pets"}
-            </p>
-            <p className="mt-1 text-sm text-gray-600">
-              Confira as datas dos novos ciclos antes de confirmar.
-            </p>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-gray-700">Data do primeiro banho</label>
-                <input type="date" value={dataInicioRenovacao}
-                  min={adicionarDias(renovacao.data, 1)}
-                  onChange={e => setDataInicioRenovacao(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 px-3 py-2" />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-gray-700">Turno</label>
-                <select value={horarioRenovacao} onChange={e => setHorarioRenovacao(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 px-3 py-2">
-                  <option value="08:30">Manhã — 08:30</option>
-                  <option value="13:30">Tarde — 13:30</option>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-emerald-950">🔄 Renovar ciclo</h3>
+            <p className="mt-2 text-sm text-gray-600">Confira as datas antes de confirmar. O histórico será mantido.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-sm font-semibold">Data do primeiro banho
+                <input type="date" min={adicionarDias(renovacao.data, 1)} value={dataInicioRenovacao}
+                  onChange={e => setDataInicioRenovacao(e.target.value)} className="mt-1 w-full rounded-xl border p-2" />
+              </label>
+              <label className="text-sm font-semibold">Turno
+                <select value={horarioRenovacao} onChange={e => setHorarioRenovacao(e.target.value)} className="mt-1 w-full rounded-xl border p-2">
+                  <option value="08:30">Manhã — 08:30</option><option value="13:30">Tarde — 13:30</option>
                 </select>
-              </div>
+              </label>
             </div>
-            <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-              <p className="mb-3 font-bold text-emerald-950">Confira as datas antes de salvar</p>
-              {(renovacoesGrupo.length ? renovacoesGrupo : [renovacao]).map(pet => {
-                const quantidade = pet.plano === "Quinzenal" ? 2 : 4;
-                const intervalo = pet.plano === "Quinzenal" ? 14 : 7;
-                const datas = dataValida(dataInicioRenovacao)
-                  ? Array.from({length: quantidade}, (_, i) => adicionarDias(dataInicioRenovacao, i * intervalo)) : [];
-                return <div key={pet.pet_id} className="mb-3 border-b border-emerald-200 pb-2 last:border-0">
-                  <p className="font-bold text-emerald-950">🐾 {pet.petNome} — {pet.plano}</p>
-                  {datas.map((data, i) => <p key={data} className="py-1 text-sm">
-                    <strong>{i + 1}º banho:</strong> {formatarDataLocal(data)} • {horarioRenovacao}
-                  </p>)}
-                </div>;
-              })}
-              {datasRenovacao.length === 0 && <p className="text-sm text-red-700">Informe uma data válida.</p>}
+            <div className="mt-4 rounded-xl bg-emerald-50 p-4">
+              {(renovacoesGrupo.length ? renovacoesGrupo : [renovacao]).map(pet => (
+                <div key={pet.pet_id} className="mb-3 border-b border-emerald-200 pb-2 last:border-0">
+                  <p className="font-semibold">{pet.petNome || "Pet"} — {pet.plano}</p>
+                  {dataValida(dataInicioRenovacao) && Array.from({ length: pet.plano === "Quinzenal" ? 2 : 4 }, (_, i) =>
+                    adicionarDias(dataInicioRenovacao, i * (pet.plano === "Quinzenal" ? 14 : 7))).map((data, i) => (
+                    <p key={data} className="text-sm">{i + 1}º banho: {formatarDataLocal(data)} às {horarioRenovacao}</p>
+                  ))}
+                </div>
+              ))}
             </div>
-            <p className="mt-4 text-sm text-gray-600">
-              O histórico será mantido. O pagamento do novo ciclo ficará pendente e deverá ser tratado na página Pagamentos.
-            </p>
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button type="button" onClick={() => { setRenovacao(null); setRenovacoesGrupo([]); setTutorRenovacao(null); }} disabled={salvandoRenovacao}
-                className="rounded-xl border border-gray-300 px-4 py-3 font-semibold text-gray-700 disabled:opacity-50">
-                Cancelar
-              </button>
-              <button type="button" onClick={() => void confirmarRenovacao()}
-                disabled={salvandoRenovacao || datasRenovacao.length === 0}
-                className="rounded-xl bg-emerald-700 px-4 py-3 font-bold text-white hover:bg-emerald-800 disabled:opacity-50">
+            <p className="mt-3 text-sm text-gray-600">O pagamento do novo ciclo ficará pendente na página Pagamentos.</p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" disabled={salvandoRenovacao} onClick={() => {setRenovacao(null);setRenovacoesGrupo([]);}}
+                className="rounded-xl border px-4 py-2">Cancelar</button>
+              <button type="button" disabled={salvandoRenovacao || !dataValida(dataInicioRenovacao)}
+                onClick={() => void confirmarRenovacao()} className="rounded-xl bg-emerald-700 px-4 py-2 font-semibold text-white disabled:opacity-50">
                 {salvandoRenovacao ? "Salvando..." : "Confirmar e gerar ciclo"}
               </button>
             </div>
@@ -2548,8 +2028,8 @@ export default function AgendaPage() {
       )}
 
       {modalAgendamento && perfilUsuario && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-[3px]">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl md:p-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-emerald-100 bg-white p-6 shadow-xl">
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">
@@ -2559,9 +2039,7 @@ export default function AgendaPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  {agendamentoSelecionado
-                    ? "Altere os dados e o valor. Em banhos concluídos, somente o valor pode ser corrigido."
-                    : "Preencha os dados do atendimento."}
+                  Preencha os dados do atendimento.
                 </p>
               </div>
 
@@ -2584,14 +2062,12 @@ export default function AgendaPage() {
                 <input
                   type="text"
                   value={buscaPet}
-                  readOnly={Boolean(agendamentoSelecionado)}
                   onChange={(e) => {
-                    if (agendamentoSelecionado) return;
                     setBuscaPet(e.target.value);
                     setPetSelecionado("");
                     setMostrarSugestoesPet(true);
                   }}
-                  onFocus={() => { if (!agendamentoSelecionado) setMostrarSugestoesPet(true); }}
+                  onFocus={() => setMostrarSugestoesPet(true)}
                   onBlur={() =>
                     setTimeout(
                       () => setMostrarSugestoesPet(false),
@@ -2600,10 +2076,10 @@ export default function AgendaPage() {
                   }
                   placeholder="Digite o nome do pet ou do tutor..."
                   autoComplete="off"
-                  className={`w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500 ${agendamentoSelecionado ? "bg-slate-100 text-slate-600" : ""}`}
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 />
 
-                {!agendamentoSelecionado && mostrarSugestoesPet && petsFiltrados.length > 0 && (
+                {mostrarSugestoesPet && petsFiltrados.length > 0 && (
                   <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg">
                     {petsFiltrados.map((pet) => (
                       <button
@@ -2625,7 +2101,7 @@ export default function AgendaPage() {
                   </div>
                 )}
 
-                {!agendamentoSelecionado && mostrarSugestoesPet &&
+                {mostrarSugestoesPet &&
                   buscaPet.trim() &&
                   petsFiltrados.length === 0 && (
                     <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-500 shadow-lg">
@@ -2672,7 +2148,7 @@ export default function AgendaPage() {
                 </div>
               )}
 
-              {agendamentoSelecionado && !estaConcluido(agendamentoSelecionado) && (
+              {agendamentoSelecionado && (
                 <div className="md:col-span-2 rounded-2xl border border-blue-200 bg-blue-50 p-4">
                   <h4 className="font-bold text-blue-950">📅 Como deseja reagendar?</h4>
                   <p className="mt-1 text-sm text-blue-800">Escolha se a mudança afeta um único banho ou todos os banhos do mesmo ciclo.</p>
@@ -2683,7 +2159,7 @@ export default function AgendaPage() {
                       <p className="mt-1 text-xs text-slate-600">Os outros banhos permanecem como estão.</p>
                     </label>
                     <label className={`cursor-pointer rounded-xl border p-3 ${modoReagendamento === "ciclo" ? "border-blue-700 bg-white" : "border-blue-200"}`}>
-                      <input type="radio" name="modo-reagendamento" checked={modoReagendamento === "ciclo"} onChange={() => setModoReagendamento("ciclo")} disabled={!cicloIdentificado || cicloTemConcluidos || estaConcluido(agendamentoSelecionado)} className="mr-2" />
+                      <input type="radio" name="modo-reagendamento" checked={modoReagendamento === "ciclo"} onChange={() => setModoReagendamento("ciclo")} disabled={!cicloIdentificado || cicloTemConcluidos} className="mr-2" />
                       <strong className="text-sm">Todo o ciclo</strong>
                       <p className="mt-1 text-xs text-slate-600">Desloca todas as datas pelo mesmo número de dias e ajusta o turno.</p>
                     </label>
@@ -2702,80 +2178,6 @@ export default function AgendaPage() {
                 </div>
               )}
 
-              {agendamentoSelecionado && ehAdmin && (
-                <div className="md:col-span-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                  <h4 className="font-bold text-emerald-950">Serviços extras deste banho</h4>
-                  <p className="mt-1 text-xs text-emerald-900">Adicionais cobrados à parte, sem alterar o valor do plano. Salve os extras pelo botão desta seção.</p>
-                  {carregandoExtras ? <p className="mt-3 text-sm">Carregando adicionais...</p> : (
-                    <div className="mt-3 space-y-2">
-                      {extrasAgenda.length === 0 && <p className="text-sm text-slate-600">Nenhum adicional cadastrado.</p>}
-                      {extrasAgenda.map(extra => (
-                        <div key={extra.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-3 text-sm">
-                          <span className="font-medium">{extra.nome_servico}</span>
-                          <span>{formatarValor(extra.valor)} · {extra.pagamento_status}</span>
-                          {extra.pagamento_status === "Pendente" && (
-                            <button type="button" disabled={salvandoExtra}
-                              onClick={() => void cancelarExtraAgendamento(extra)}
-                              className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-700 disabled:opacity-50">Cancelar adicional</button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <p className="mt-3 text-sm font-semibold text-emerald-950">
-                    Total dos extras ativos: {formatarValor(extrasAgenda.filter(e => e.pagamento_status !== "Cancelado").reduce((total, e) => total + Number(e.valor || 0), 0))}
-                  </p>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_130px]">
-                    <select value={servicoExtraId} disabled={salvandoExtra}
-                      onChange={e => {
-                        const id = e.target.value;
-                        setServicoExtraId(id);
-                        const servico = servicos.find(s => s.id === id);
-                        setValorExtra(servico ? String(servico.preco ?? 0).replace(".", ",") : "");
-                      }}
-                      className="min-w-0 rounded-xl border border-emerald-200 bg-white px-3 py-3 text-sm">
-                      <option value="">Selecione um serviço extra</option>
-                      {servicos.filter(s => NOMES_EXTRAS.has(s.nome)).map(s => (
-                        <option key={s.id} value={s.id}>{s.nome}</option>
-                      ))}
-                    </select>
-                    <input aria-label="Valor do adicional em reais" type="text" inputMode="decimal"
-                      placeholder="Valor (R$)" value={valorExtra} disabled={salvandoExtra}
-                      onChange={e => setValorExtra(e.target.value)}
-                      className="min-w-0 rounded-xl border border-emerald-200 bg-white px-3 py-3 text-sm" />
-                  </div>
-                  {erroExtra && <p className="mt-2 text-sm text-red-700">{erroExtra}</p>}
-                  <button type="button" onClick={() => void adicionarExtraAgendamento()}
-                    disabled={salvandoExtra || carregandoExtras || !servicoExtraId}
-                    className="mt-3 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">
-                    {salvandoExtra ? "Salvando adicional..." : "+ Salvar serviço extra"}
-                  </button>
-                </div>
-              )}
-
-              {agendamentoSelecionado ? (
-                <>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-gray-700">Serviço do banho</label>
-                    <div className="min-h-12 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950">
-                      {obterNomeServico(agendamentoSelecionado)}
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">Preenchido automaticamente pelo agendamento do pet.</p>
-                  </div>
-                  {ehAdmin && (
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-gray-700">
-                        {ehPlano(agendamentoSelecionado) ? "Valor total do ciclo" : "Valor do atendimento"}
-                      </label>
-                      <input type="text" inputMode="decimal" value={valorAgendamento}
-                        onChange={e => setValorAgendamento(e.target.value)} placeholder="Ex.: 180,00"
-                        className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-500" />
-                      <p className="mt-1 text-xs text-slate-500">Valor sugerido automaticamente, mas editável. Para planos, vale para todo o ciclo. Pagamentos anteriores não são alterados.</p>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Serviço
@@ -2830,9 +2232,6 @@ export default function AgendaPage() {
                 />
               </div>}
 
-                </>
-              )}
-
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Data
@@ -2860,7 +2259,7 @@ export default function AgendaPage() {
                   disabled={Boolean(agendamentoSelecionado && estaConcluido(agendamentoSelecionado))}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-gray-500"
                 >
-                  <option value="08:30">08:30</option>
+                  <option value="08:00">08:00</option>
                   <option value="13:30">13:30</option>
                 </select>
               </div>
@@ -2880,6 +2279,47 @@ export default function AgendaPage() {
                 />
               </div>
             </div>
+
+            {ehAdmin && agendamentoSelecionado && (
+              <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <h4 className="font-bold text-emerald-950">Serviços extras deste banho</h4>
+                <p className="mt-1 text-xs text-emerald-900">Adicionais cobrados à parte, sem alterar o valor do plano. Cada extra fica vinculado a este banho.</p>
+                <div className="mt-3 space-y-2">
+                  {extrasComprovantes.filter(extra => extra.agendamento_id === agendamentoSelecionado.id).length === 0 && (
+                    <p className="text-sm text-gray-600">Nenhum adicional cadastrado.</p>
+                  )}
+                  {extrasComprovantes.filter(extra => extra.agendamento_id === agendamentoSelecionado.id).map(extra => (
+                    <div key={extra.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-3 text-sm">
+                      <span>{extra.nome_servico} — {formatarValor(Number(extra.valor))} ({extra.pagamento_status})</span>
+                      {extra.pagamento_status === "Pendente" && (
+                        <button type="button" disabled={salvandoExtra} onClick={() => void cancelarExtraAgendamento(extra)}
+                          className="rounded-lg border border-rose-200 px-3 py-1 font-semibold text-rose-700 disabled:opacity-50">Cancelar extra</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-sm font-semibold text-emerald-900">
+                  Total de extras ativos: {formatarValor(extrasComprovantes.filter(extra => extra.agendamento_id === agendamentoSelecionado.id && extra.pagamento_status !== "Cancelado").reduce((total, extra) => total + Number(extra.valor || 0), 0))}
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <select value={servicoExtraId} disabled={salvandoExtra}
+                    onChange={e => { const id = e.target.value; setServicoExtraId(id); const servico = servicos.find(item => item.id === id); setValorExtra(servico?.preco == null ? "" : String(servico.preco).replace(".", ",")); }}
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm">
+                    <option value="">Selecione um serviço extra</option>
+                    {servicos.map(servico => <option key={servico.id} value={servico.id}>{nomeServicoPadronizado(servico.nome)}</option>)}
+                  </select>
+                  <input type="text" inputMode="decimal" value={valorExtra} disabled={salvandoExtra}
+                    onChange={e => setValorExtra(e.target.value)} placeholder="Valor (R$)"
+                    className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm" />
+                </div>
+                {erroExtra && <p className="mt-2 text-sm text-red-700" role="alert">{erroExtra}</p>}
+                <button type="button" disabled={salvandoExtra || !servicoExtraId}
+                  onClick={() => void adicionarExtraAgendamento()}
+                  className="mt-3 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                  {salvandoExtra ? "Salvando..." : "+ Salvar serviço extra"}
+                </button>
+              </div>
+            )}
 
             {ehAdmin && agendamentoSelecionado && estaConcluido(agendamentoSelecionado) && (
               <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -2906,14 +2346,14 @@ export default function AgendaPage() {
                 Cancelar
               </button>
 
-              <button
+              {!(agendamentoSelecionado && estaConcluido(agendamentoSelecionado)) && <button
                 type="button"
                 onClick={() => void salvarAgendamento()}
                 disabled={salvando}
                 className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
               >
                   {salvando ? "Salvando..." : agendamentoSelecionado && modoReagendamento === "ciclo" ? "Confirmar ciclo completo" : "Salvar agendamento"}
-              </button>
+              </button>}
             </div>
           </div>
         </div>
@@ -2922,6 +2362,3 @@ export default function AgendaPage() {
     </main>
   );
 }
-
-
-
