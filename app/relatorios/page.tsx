@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import { cobrancaCancelada, conferirConversoes } from "@/lib/conferencia-financeira";
+import { extraRecebimentoConfirmado, resumirAvulso, resumirCiclo } from "@/lib/financeiro";
 
 import MenuLateral from "@/app/components/MenuLateral";
 
@@ -118,7 +120,7 @@ async function buscarTodos<T>(tabela: string, campos: string, ordenacao: string)
 
   for (let inicio = 0; ; inicio += tamanho) {
 
-    const { data, error } = await supabase.from(tabela).select(campos).order(ordenacao, { ascending: false }).range(inicio, inicio + tamanho - 1);
+    const { data, error } = await supabase.from(tabela).select(campos).order(ordenacao, { ascending: false }).order("id", { ascending: false }).range(inicio, inicio + tamanho - 1);
 
     if (error) throw new Error(`${tabela}: ${error.message}`);
 
@@ -312,6 +314,7 @@ export default function RelatoriosPage() {
 
   };
 
+  const alertasConversoes = useMemo(() => conferirConversoes(conversoes, parcelas, pagamentosPlanos, agendamentos, atendimentos), [conversoes, parcelas, pagamentosPlanos, agendamentos, atendimentos]);
   const dados = useMemo(() => {
 
     const mapaPets = new Map(pets.map(p => [p.id, p]));
@@ -331,10 +334,6 @@ export default function RelatoriosPage() {
     const conversoesPorCiclo = new Map(conversoes.map(c => [chaveCiclo(c.pet_id,c.ciclo),c]));
 
     const agendamentosConvertidos = new Set(conversoes.map(c => c.agendamento_avulso_id));
-
-    const parcelasPorConversao = new Map<string,number>();
-
-    for(const p of parcelas) parcelasPorConversao.set(p.conversao_id,(parcelasPorConversao.get(p.conversao_id)||0)+numero(p.valor));
 
     const ciclosPagos = new Set(pagamentosPlanos.map(p => chaveCiclo(p.pet_id, p.ciclo)));
 
@@ -381,7 +380,7 @@ export default function RelatoriosPage() {
 
     for (const extra of extras) {
 
-      if (normalizar(extra.pagamento_status) !== "pago") continue;
+  if (!extraRecebimentoConfirmado(extra)) continue;
 
       const dataRecebimento = dataISO(extra.data_pagamento);
 
@@ -437,6 +436,8 @@ export default function RelatoriosPage() {
 
     const conferencias: Conferencia[] = [];
 
+  const extrasConsolidados = new Set<string>();
+
     for (const [chave, grupo] of grupos) {
 
       const primeiro = [...grupo].sort((a, b) => a.data.localeCompare(b.data))[0];
@@ -455,23 +456,27 @@ export default function RelatoriosPage() {
 
       }
 
-      const conversao = conversoesPorCiclo.get(chave);
+      const conversao = conversoesPorCiclo.get(chave);
+      const extrasCiclo = extras.filter(extra => grupo.some(a => a.id === extra.agendamento_id));
+      const resumo = resumirCiclo(grupo, pagamentosPlanos, conversoes, parcelas, extrasCiclo, atendimentos);
 
-      if(conversao) {
+      if (conversao) {
+        if (resumo.estado !== "conferir") {
+          extrasCiclo.filter(extra => !cobrancaCancelada(extra.pagamento_status)).forEach(extra => extrasConsolidados.add(extra.id));
+          if (resumo.saldo !== null && resumo.saldo > 0) {
+            pendentes.push({ chave, ...nomesPet(primeiro.pet_id), plano: `${primeiro.plano} · ciclo ${primeiro.ciclo} (saldo)`, valor: resumo.saldo, inicio: primeiro.data });
+          }
+        }
+        continue;
+      }
 
-        const restante = Math.max(0, numero(conversao.valor_plano)-numero(conversao.credito_avulso)-(parcelasPorConversao.get(conversao.id)||0));
-
-        if(restante>0) pendentes.push({chave,...nomesPet(primeiro.pet_id),plano:`${primeiro.plano} · ciclo ${primeiro.ciclo} (saldo)`,valor:restante,inicio:primeiro.data});
-
-        continue;
-
-      }
-
-      if (marcadoPago || ciclosPagos.has(chave)) continue;
+      if (resumo.estado === "conferir" || resumo.estado === "cancelado" || resumo.saldo === null) continue;
+      extrasCiclo.filter(extra => !cobrancaCancelada(extra.pagamento_status)).forEach(extra => extrasConsolidados.add(extra.id));
+      if (resumo.saldo === 0) continue;
 
       const n = nomesPet(primeiro.pet_id);
 
-      pendentes.push({ chave, ...n, plano: `${primeiro.plano} · ciclo ${primeiro.ciclo}`, valor: numero(primeiro.valor_total), inicio: primeiro.data });
+      pendentes.push({ chave, ...n, plano: `${primeiro.plano} · ciclo ${primeiro.ciclo}`, valor: resumo.saldo, inicio: primeiro.data });
 
     }
 
@@ -481,7 +486,7 @@ export default function RelatoriosPage() {
 
     for (const e of extras) {
 
-      if (normalizar(e.pagamento_status) === "cancelado") continue;
+      if (cobrancaCancelada(e.pagamento_status)) continue;
 
       const lista = extrasPorAg.get(e.agendamento_id) || [];
 
@@ -505,7 +510,35 @@ export default function RelatoriosPage() {
 
 
 
-    return { receitas, linhas, pendentes, conferencias, semRegistroFinanceiro: conferencias.length };
+    const outrasPendencias: Pendente[] = [];
+    const avulsosVisitados = new Set<string>();
+    for (const at of atendimentos) {
+      const a = at.agendamento_id ? mapaAg.get(at.agendamento_id) : undefined;
+      if (ehPlano(a) || (at.agendamento_id && agendamentosConvertidos.has(at.agendamento_id))) continue;
+      const chave = at.agendamento_id || at.id;
+      if (avulsosVisitados.has(chave)) continue;
+      avulsosVisitados.add(chave);
+      const grupo = at.agendamento_id ? atendimentos.filter(x => x.agendamento_id === at.agendamento_id) : [at];
+      const extrasAtendimento = at.agendamento_id ? extras.filter(extra => extra.agendamento_id === at.agendamento_id) : [];
+      const resumo = resumirAvulso(a?.valor_total ?? at.valor, grupo, a?.pagamento_status, extrasAtendimento);
+      if (resumo.estado !== "conferir" && resumo.estado !== "cancelado") {
+        extrasAtendimento.filter(extra => !cobrancaCancelada(extra.pagamento_status)).forEach(extra => extrasConsolidados.add(extra.id));
+      }
+      if (resumo.estado !== "cancelado" && resumo.estado !== "conferir" && resumo.saldo !== null && resumo.saldo > 0) {
+        outrasPendencias.push({ chave: `avulso-${chave}`, ...nomesPet(at.pet_id || a?.pet_id || null), plano: a?.servico_nome || "Avulso", valor: resumo.saldo, inicio: at.data });
+      }
+    }
+    for (const e of extras) {
+      if (extraRecebimentoConfirmado(e) || cobrancaCancelada(e.pagamento_status) || extrasConsolidados.has(e.id)) continue;
+      outrasPendencias.push({ chave: `extra-${e.id}`, ...nomesPet(e.pet_id), plano: `Extra: ${e.nome_servico}`, valor: numero(e.valor), inicio: mapaAg.get(e.agendamento_id)?.data || "" });
+    }
+    const saldosConferir = [...grupos.values()].filter(grupo => {
+      const a = grupo[0];
+      return !conversoesPorCiclo.has(chaveCiclo(a.pet_id, a.ciclo!))
+        && resumirCiclo(grupo, pagamentosPlanos, [], [], extras.filter(extra => grupo.some(item => item.id === extra.agendamento_id))).estado === "conferir"
+        && !conferencias.some(c => c.chave === chaveCiclo(a.pet_id, a.ciclo!));
+    }).map(grupo => ({ chave: chaveCiclo(grupo[0].pet_id, grupo[0].ciclo!), ...nomesPet(grupo[0].pet_id), ciclo: grupo[0].ciclo }));
+    return { receitas, linhas, pendentes, outrasPendencias, saldosConferir, conferencias, semRegistroFinanceiro: conferencias.length };
 
   }, [atendimentos, agendamentos, pagamentosPlanos, pets, clientes, extras, conversoes, parcelas]);
 
@@ -532,6 +565,7 @@ export default function RelatoriosPage() {
   const pendentesPeriodo = dados.pendentes.filter(p => dentro(p.inicio, dataInicio, dataFim));
 
   const valorPendente = pendentesPeriodo.reduce((s, p) => s + p.valor, 0);
+  const outrasPendenciasPeriodo = dados.outrasPendencias.filter(p => dentro(p.inicio, dataInicio, dataFim));
 
   const buscaNormalizada = normalizar(busca);
 
@@ -687,7 +721,12 @@ export default function RelatoriosPage() {
 
           {!carregando && valido && <>
 
-            {dados.semRegistroFinanceiro > 0 && <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong>Atenção:</strong> {dados.semRegistroFinanceiro} ciclo(s) de plano estão marcados como pagos na agenda, mas não possuem registro correspondente em <code>pagamentos_planos</code>. Esses valores não foram somados ao recebido porque não há data de pagamento comprovada. Confira os ciclos na tabela abaixo. Não regularize pagamentos sem comprovação.</div>}
+              {alertasConversoes.length > 0 && <div role="alert" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <strong>Conversões para conferir</strong>
+                {alertasConversoes.map(a => <p key={a.chave} className="mt-2">{pets.find(p => p.id === a.petId)?.nome || "Pet não identificado"} · Ciclo {a.ciclo}: {a.mensagem}</p>)}
+                <p className="mt-2">Avisos independentes do período. Registros e recebimentos preservados; confira em Pagamentos.</p>
+              </div>}
+              {dados.semRegistroFinanceiro > 0 && <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong>Atenção:</strong> {dados.semRegistroFinanceiro} ciclo(s) de plano estão marcados como pagos na agenda, mas não possuem registro correspondente em <code>pagamentos_planos</code>. Esses valores não foram somados ao recebido porque não há data de pagamento comprovada. Confira os ciclos na tabela abaixo. Não regularize pagamentos sem comprovação.</div>}
 
             {dados.conferencias.length > 0 && <div className={`${cartao} mt-5`}>
 
@@ -699,7 +738,9 @@ export default function RelatoriosPage() {
 
             </div>}
 
-            {receitasPeriodo.some(r => r.dataAproximada) && <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"><strong>Avulsos:</strong> registros antigos de avulsos sem <code>data_pagamento</code> utilizam provisoriamente a data do atendimento. Os avulsos com data de pagamento preenchida entram no recebido confirmado.</div>}
+              {dados.saldosConferir.length > 0 && <div role="alert" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong>Saldos a conferir — não incluídos na previsão de pendências</strong>{dados.saldosConferir.map(a => <p key={a.chave} className="mt-2">{a.tutor} · {a.pet} · Ciclo {a.ciclo}: confira valores divergentes, ausentes ou recebimentos excedentes em Pagamentos. Receitas registradas foram preservadas.</p>)}</div>}
+              {outrasPendenciasPeriodo.length > 0 && <div className={`${cartao} mt-5`}><h2 className="font-bold">Avulsos e extras pendentes no período</h2><p className="mt-2 text-xl font-bold">{moeda(outrasPendenciasPeriodo.reduce((s, p) => s + p.valor, 0))}</p>{outrasPendenciasPeriodo.map(p => <p key={p.chave} className="mt-2 text-sm text-gray-600">{p.tutor} · {p.pet} · {p.plano}: {moeda(p.valor)}</p>)}<p className="mt-2 text-xs text-gray-500">Previsão pela data do atendimento; valores separados dos planos e das receitas.</p></div>}
+              {receitasPeriodo.some(r => r.dataAproximada) && <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"><strong>Avulsos:</strong> registros antigos de avulsos sem <code>data_pagamento</code> utilizam provisoriamente a data do atendimento. Os avulsos com data de pagamento preenchida entram no recebido confirmado.</div>}
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 

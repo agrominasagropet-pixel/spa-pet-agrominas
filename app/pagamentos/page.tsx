@@ -1,7 +1,9 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { cobrancaCancelada, conferirConversoes, podeCancelarCobrancaComum } from "@/lib/conferencia-financeira";
+import { centavos, extraRecebimentoConfirmado, resumirAvulso, resumirCiclo, validarRecebimentoLegado } from "@/lib/financeiro";
 import MenuLateral from "@/app/components/MenuLateral";
 type ConversaoPlano = { id: string; pet_id: string; agendamento_avulso_id: string; atendimento_original_id: string; ciclo: number; plano_destino: string; valor_plano: number; credito_avulso: number };
 type ParcelaPlano = { id: string; conversao_id: string; valor: number; forma_pagamento: string; data_pagamento: string };
@@ -60,6 +62,8 @@ type Linha = {
   titulo: string;
   ciclo: number | null;
   valor: number | null;
+  totalCobranca?: number | null;
+  saldoCobranca?: number | null;
   data: string;
   dataPagamento: string;
   forma: string;
@@ -151,6 +155,7 @@ async function buscarTodos<T>(
       .from(tabela)
       .select(campos)
       .order(ordem, { ascending: false })
+      .order("id", { ascending: false })
       .range(inicio, inicio + 499);
     if (error) {
       throw new Error(`${tabela}: ${error.message}`);
@@ -162,6 +167,7 @@ async function buscarTodos<T>(
   return resultado;
 }
 export default function PagamentosPage() {
+  const gravacaoEmAndamento = useRef(false);
   const router = useRouter();
   const [acesso, setAcesso] = useState<"verificando" | "admin" | "negado">("verificando");
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -290,6 +296,7 @@ export default function PagamentosPage() {
     }, 0);
     return () => window.clearTimeout(temporizador);
   }, [carregar, acesso]);
+  const alertasConversoes = useMemo(() => conferirConversoes(conversoes, parcelas, pagamentos, agendamentos, atendimentos), [conversoes, parcelas, pagamentos, agendamentos, atendimentos]);
   const linhas = useMemo(() => {
     const petMap = new Map(
       pets.map((pet) => [pet.id, pet])
@@ -333,6 +340,7 @@ export default function PagamentosPage() {
     const recebidoConversao = new Map<string,number>();
     for(const p of parcelas) recebidoConversao.set(p.conversao_id,(recebidoConversao.get(p.conversao_id)||0)+Number(p.valor));
     const resultado: Linha[] = [];
+    const extrasDoCiclo = (grupo: Agendamento[]) => extras.filter(extra => grupo.some(ag => ag.id === extra.agendamento_id));
     for (const [chave, grupo] of grupos) {
       const ordenados = [...grupo].sort((a, b) =>
         a.data.localeCompare(b.data)
@@ -354,10 +362,21 @@ export default function PagamentosPage() {
       ];
       const info = identificar(primeiro.pet_id);
       const conversao = conversoesCiclo.get(chave);
+      const extrasCiclo = extrasDoCiclo(grupo);
       if(conversao) {
-        const saldo = Math.max(0,Number(conversao.valor_plano)-Number(conversao.credito_avulso)-(recebidoConversao.get(conversao.id)||0));
-        resultado.push({chave:`conversao-${conversao.id}`,tipo:"plano",situacao:saldo>0?"pendente":"pago",petId:conversao.pet_id,...info,titulo:`Plano ${conversao.plano_destino} · Ciclo ${conversao.ciclo} · crédito ${moeda(Number(conversao.credito_avulso))}`,ciclo:conversao.ciclo,valor:saldo,data:primeiro.data,dataPagamento:"",forma:"",observacao:`Crédito avulso ${moeda(Number(conversao.credito_avulso))} · recebido do saldo ${moeda(recebidoConversao.get(conversao.id)||0)}`});
+        const resumo = resumirCiclo(grupo, registros, conversoes, parcelas, extrasCiclo, atendimentos);
+        const saldoPrincipal = resumo.saldo === null ? null : Math.max(0, resumo.saldo - resumo.pendenteExtras);
+        if (resumo.saldo === null || resumo.saldo > 0) resultado.push({chave:`conversao-${conversao.id}`,tipo:"plano",situacao:resumo.estado === "conferir" ? "conferir" : "pendente",petId:conversao.pet_id,...info,titulo:`Plano ${conversao.plano_destino} · Ciclo ${conversao.ciclo} · crédito ${moeda(Number(conversao.credito_avulso))}`,ciclo:conversao.ciclo,valor:saldoPrincipal,totalCobranca:resumo.valor,saldoCobranca:resumo.saldo,data:primeiro.data,dataPagamento:"",forma:"",observacao:`Crédito avulso ${moeda(Number(conversao.credito_avulso))} · recebido do saldo ${moeda(recebidoConversao.get(conversao.id)||0)}`});
         for(const p of parcelas.filter(p=>p.conversao_id===conversao.id)) resultado.push({chave:`parcela-${p.id}`,estornoTipo:"parcela",estornoId:p.id,tipo:"plano",situacao:"pago",petId:conversao.pet_id,...info,titulo:`Parcela do plano ${conversao.plano_destino} · Ciclo ${conversao.ciclo}`,ciclo:conversao.ciclo,valor:Number(p.valor),data:primeiro.data,dataPagamento:(p.data_pagamento||"").slice(0,10),forma:p.forma_pagamento});
+        // Preserva também os pagamentos comuns: coexistência exige conferência.
+        for (const pg of registros) resultado.push({
+          chave: `plano-pago-${pg.id}`, estornoTipo: "plano", estornoId: pg.id,
+          tipo: "plano", situacao: "pago", petId: pg.pet_id, ...info,
+          titulo: `Pagamento comum · Ciclo ${pg.ciclo} convertido`, ciclo: pg.ciclo,
+          valor: valorValido(pg.valor), data: primeiro.data,
+          dataPagamento: (pg.data_pagamento || "").slice(0, 10), forma: pg.forma_pagamento || "Não informada",
+          observacao: "Conferir possível duplicidade com a conversão. Este pagamento não foi abatido automaticamente do saldo.",
+        });
         continue;
       }
       if (registros.length > 0) {
@@ -381,21 +400,31 @@ export default function PagamentosPage() {
                 : undefined,
           });
         }
+        const resumo = resumirCiclo(grupo, registros, [], [], extrasCiclo);
+        const saldoPrincipal = resumo.saldo === null ? null : Math.max(0, resumo.saldo - resumo.pendenteExtras);
+        if (ativo && resumo.estado !== "cancelado" && (resumo.saldo === null || resumo.saldo > 0 || resumo.estado === "conferir")) {
+          resultado.push({ chave: `saldo-plano-${chave}`, tipo: "plano", situacao: resumo.estado === "conferir" ? "conferir" : "pendente",
+            petId: primeiro.pet_id, ...info, titulo: `Saldo do plano ${primeiro.plano || ""} · Ciclo ${primeiro.ciclo}`, ciclo: primeiro.ciclo,
+            valor: saldoPrincipal, totalCobranca: resumo.valor, saldoCobranca: resumo.saldo, data: primeiro.data, dataPagamento: "", forma: "",
+            observacao: `Recebido ${moeda(resumo.recebido)}. Novas parcelas dependem da atualização financeira transacional; recebimentos anteriores foram preservados.`,
+          });
+        }
        } else if (ativo && !grupo.some((a) => cancelado(a.pagamento_status))) {
+        const resumo = resumirCiclo(grupo, registros, [], [], extrasCiclo);
+        const saldoPrincipal = resumo.saldo === null ? null : Math.max(0, resumo.saldo - resumo.pendenteExtras);
         resultado.push({
           chave: `plano-${chave}`,
           tipo: "plano",
-          situacao: pagoNaAgenda
+          situacao: resumo.estado === "conferir" || pagoNaAgenda
             ? "conferir"
             : "pendente",
           petId: primeiro.pet_id,
           ...info,
           titulo: `Plano ${primeiro.plano || ""} · Ciclo ${primeiro.ciclo}`,
           ciclo: primeiro.ciclo,
-          valor:
-            valores.length === 1
-              ? valores[0]
-              : null,
+          valor: saldoPrincipal,
+          totalCobranca: resumo.valor,
+          saldoCobranca: resumo.saldo,
           data: primeiro.data,
           dataPagamento: "",
           forma:
@@ -432,26 +461,37 @@ export default function PagamentosPage() {
       }
     }
     // Atendimentos avulsos.
+    const saldosAvulsosAdicionados = new Set<string>();
+    const pendenciasAvulsasAdicionadas = new Set<string>();
     for (const at of atendimentos) {
       const ag = at.agendamento_id
         ? agMap.get(at.agendamento_id)
         : undefined;
       if (ag && planoValido(ag) && !originaisConvertidos.has(at.id)) continue;
       const petId = at.pet_id || ag?.pet_id || "";
+      const extrasAtendimento = at.agendamento_id ? extras.filter(extra => extra.agendamento_id === at.agendamento_id) : [];
+      const atendimentosAvulso = at.agendamento_id ? atendimentos.filter(item => item.agendamento_id === at.agendamento_id) : [at];
+      const resumoAvulso = resumirAvulso(ag?.valor_total ?? at.valor, atendimentosAvulso, ag?.pagamento_status, extrasAtendimento);
+      const saldoPrincipal = resumoAvulso.saldo === null ? null : Math.max(0, resumoAvulso.saldo - resumoAvulso.pendenteExtras);
+      if (!at.forma_pagamento && resumoAvulso.estado === "cancelado") continue;
+      const chaveSaldoAvulso = at.agendamento_id || at.id;
+      if (!at.forma_pagamento && pendenciasAvulsasAdicionadas.has(chaveSaldoAvulso)) continue;
+      if (!at.forma_pagamento) pendenciasAvulsasAdicionadas.add(chaveSaldoAvulso);
       resultado.push({
         chave: `avulso-${at.id}`,
           estornoTipo: "avulso", estornoId: at.id,
         tipo: "avulso",
         situacao: at.forma_pagamento
           ? "pago"
-          : "pendente",
+          : resumoAvulso.estado === "conferir" ? "conferir" : "pendente",
         petId,
         ...identificar(petId),
         titulo: ag?.servico_nome || "Atendimento avulso",
         ciclo: null,
         valor:
-          valorValido(at.valor) ??
-          valorValido(ag?.valor_total),
+          (at.forma_pagamento ? valorValido(at.valor) : valorValido(ag?.valor_total) ?? valorValido(at.valor)),
+        totalCobranca: resumoAvulso.valor,
+        saldoCobranca: resumoAvulso.saldo,
         data: at.data,
         dataPagamento: at.forma_pagamento
           ? (at.data_pagamento || at.data).slice(0, 10)
@@ -462,14 +502,23 @@ export default function PagamentosPage() {
           ? "Pagamento antigo sem data de recebimento registrada; exibimos a data do atendimento como referência."
           : undefined,
       });
+      if (at.forma_pagamento && !originaisConvertidos.has(at.id) && !saldosAvulsosAdicionados.has(chaveSaldoAvulso)
+        && saldoPrincipal !== null && saldoPrincipal > 0 && resumoAvulso.estado !== "cancelado") {
+        saldosAvulsosAdicionados.add(chaveSaldoAvulso);
+        resultado.push({ chave: `saldo-avulso-${at.id}`, tipo: "avulso", situacao: resumoAvulso.estado === "conferir" ? "conferir" : "pendente", petId,
+          ...identificar(petId), titulo: `Saldo · ${ag?.servico_nome || "Atendimento avulso"}`, ciclo: null,
+          valor: saldoPrincipal, totalCobranca: resumoAvulso.valor, saldoCobranca: resumoAvulso.saldo, data: at.data, dataPagamento: "", forma: "", atendimentoId: at.id,
+          observacao: `Recebido ${moeda(resumoAvulso.recebido)} de ${moeda(resumoAvulso.valor)}. Novas parcelas exigem atualização financeira; o recebimento anterior não será sobrescrito.`,
+        });
+      }
     }
         // Serviços extras são vinculados ao banho, sem alterar o valor do plano.
-    const extrasExibidos: ExtraExibicao[] = extras.filter(e => normal(e.pagamento_status) !== "cancelado").map(e => {
+    const extrasExibidos: ExtraExibicao[] = extras.filter(e => !cobrancaCancelada(e.pagamento_status)).map(e => {
       const ag = agMap.get(e.agendamento_id);
       return { ...e, banho: ag?.numero_banho ? `${ag.numero_banho}º banho` : "Banho não identificado", dataBanho: ag?.data || "", cicloExtra: ag?.ciclo ?? null };
     });
-    const pendentesExtras = extrasExibidos.filter(e => normal(e.pagamento_status) === "pendente");
-    const pagosExtras = extrasExibidos.filter(e => normal(e.pagamento_status) === "pago");
+    const pendentesExtras = extrasExibidos.filter(e => !extraRecebimentoConfirmado(e));
+    const pagosExtras = extrasExibidos.filter(extraRecebimentoConfirmado);
     const associados = new Set<string>();
     // Exibe extras pendentes na mesma cobrança do plano/atendimento pendente.
     for (const linha of resultado) {
@@ -487,7 +536,8 @@ export default function PagamentosPage() {
     for (const [chave, grupo] of gruposExtras) {
       const primeiro = grupo[0];
       const info = identificar(primeiro.pet_id);
-      resultado.push({ chave: `extras-${chave}`, tipo: "extras", situacao: "pendente", petId: primeiro.pet_id, ...info, titulo: primeiro.cicloExtra === null ? "Adicionais do atendimento" : `Serviços extras · Ciclo ${primeiro.cicloExtra}`, ciclo: primeiro.cicloExtra, valor: 0, data: primeiro.dataBanho, dataPagamento: "", forma: "", extras: grupo });
+      const totalExtrasPendentes = grupo.reduce((total, extra) => total + Number(extra.valor), 0);
+      resultado.push({ chave: `extras-${chave}`, tipo: "extras", situacao: "pendente", petId: primeiro.pet_id, ...info, titulo: primeiro.cicloExtra === null ? "Adicionais do atendimento" : `Serviços extras · Ciclo ${primeiro.cicloExtra}`, ciclo: primeiro.cicloExtra, valor: 0, totalCobranca: totalExtrasPendentes, saldoCobranca: totalExtrasPendentes, data: primeiro.dataBanho, dataPagamento: "", forma: "", extras: grupo });
     }
     // Pagamentos de extras mantêm histórico próprio e data real de recebimento.
     for (const e of pagosExtras) {
@@ -541,7 +591,9 @@ export default function PagamentosPage() {
     (l) => l.situacao === "pendente"
   );
     const totalPendente = pendentes.reduce(
-    (total, l) => total + (l.valor || 0) + (l.extras || []).reduce((t,e) => t + Number(e.valor || 0), 0),
+      (total, l) => total + (l.saldoCobranca !== undefined
+        ? l.saldoCobranca || 0
+        : (l.valor || 0) + (l.extras || []).reduce((t,e) => t + Number(e.valor || 0), 0)),
     0
   );
   const semValor = pendentes.filter(
@@ -607,6 +659,10 @@ export default function PagamentosPage() {
   async function cancelarCobranca(linha: Linha) {
     if (cancelando || linha.tipo !== "plano" ||
         linha.situacao !== "pendente" || linha.ciclo === null) return;
+    if (!podeCancelarCobrancaComum(linha.petId, linha.ciclo, conversoes)) {
+      setErro("Ciclo convertido: o cancelamento comum não cancela o saldo da conversão. É necessária uma operação financeira específica.");
+      return;
+    }
     const confirmou = window.confirm(
       "Cancelar SOMENTE a cobrança financeira?\n\n" +
       "Tutor: " + linha.tutor + "\n" +
@@ -633,6 +689,12 @@ export default function PagamentosPage() {
       if (erroPerfil || perfil?.perfil !== "admin") {
         throw new Error("Somente a administradora pode cancelar cobranças.");
       }
+      // Revalida no banco para não usar apenas a lista carregada ao abrir a tela.
+      const { data: conversoesAtuais, error: erroConversoes } = await supabase
+        .from("conversoes_avulso_plano").select("id")
+        .eq("pet_id", linha.petId).eq("ciclo", linha.ciclo).limit(1);
+      if (erroConversoes) throw erroConversoes;
+      if (conversoesAtuais?.length) throw new Error("Este ciclo foi convertido. O cancelamento comum não se aplica ao saldo da conversão.");
       const { data: ags, error: erroAg } = await supabase
         .from("agendamentos")
         .select("id,status,pagamento_status")
@@ -698,7 +760,7 @@ export default function PagamentosPage() {
     setAviso("");
   }
     async function registrarPagamento() {
-    if (!selecionado || salvando) return;
+    if (!selecionado || salvando || gravacaoEmAndamento.current) return;
     const linha = selecionado;
     const cobrarPrincipal = linha.tipo !== "extras" && incluirPrincipal;
     const selecionados = (linha.extras || []).filter(e => extrasSelecionados.includes(e.id));
@@ -715,6 +777,20 @@ export default function PagamentosPage() {
       );
       return;
     }
+    if (cobrarPrincipal) {
+      const convertido = linha.chave.startsWith("conversao-");
+      const erroValor = convertido
+        ? (centavos(numero) === null || numero <= 0 || centavos(numero)! > (centavos(linha.valor) ?? -1)
+          || Math.abs(numero * 100 - Math.round(numero * 100)) > 0.000001 ? "Informe uma parcela positiva, com até duas casas decimais, que não ultrapasse o saldo." : null)
+        : validarRecebimentoLegado(numero, linha.valor, linha.chave.startsWith("saldo-") || (linha.tipo === "plano" && pagamentos.some(p => p.pet_id === linha.petId && p.ciclo === linha.ciclo)));
+      if (erroValor) { setErroModal(erroValor); return; }
+      if (convertido && alertasConversoes.some(a => a.petId === linha.petId && a.ciclo === linha.ciclo)) {
+        setErroModal("Esta conversão possui inconsistências. Confira os avisos antes de registrar novos recebimentos."); return;
+      }
+    }
+    if (selecionados.some(e => (centavos(Number(e.valor)) ?? 0) <= 0)) {
+      setErroModal("Há adicional sem valor positivo confirmado. Confira o serviço antes de receber."); return;
+    }
         const totalReceber = (numero || 0) + selecionados.reduce((t,e) => t + Number(e.valor), 0);
     const confirmar = window.confirm(
       `Confirmar recebimento de ${moeda(totalReceber)}?\n\n` +
@@ -724,13 +800,16 @@ export default function PagamentosPage() {
         `Data: ${dataBR(dataPagamento)}`
     );
     if (!confirmar) return;
+    gravacaoEmAndamento.current = true;
     setSalvando(true);
     setErroModal("");
     let pagamentoGravado = false;
+    let escritaIniciada = false;
     try {
             if (cobrarPrincipal && linha.tipo === "plano" && linha.chave.startsWith("conversao-")) {
               if(dataPagamento !== hoje()) throw new Error("Pagamentos de conversão são registrados com a data atual.");
               const conversaoId = linha.chave.slice("conversao-".length);
+              escritaIniciada = true;
               const {error} = await supabase.rpc("receber_saldo_conversao_agrominas",{p_conversao_id:conversaoId,p_valor:numero,p_forma_pagamento:forma});
               if(error) throw error;
               pagamentoGravado = true;
@@ -738,6 +817,7 @@ export default function PagamentosPage() {
         if (linha.ciclo === null) {
           throw new Error("Ciclo não identificado.");
         }
+        escritaIniciada = true;
         const { data: pagamentoId, error: erroPagamento } = await supabase.rpc(
           "registrar_pagamento_plano_agrominas",
           {
@@ -758,7 +838,7 @@ export default function PagamentosPage() {
         }
         const consulta = await supabase
           .from("atendimentos")
-          .select("id,forma_pagamento")
+          .select("id,forma_pagamento,valor,agendamento_id")
           .eq("id", linha.atendimentoId)
           .single();
         if (consulta.error) throw consulta.error;
@@ -767,15 +847,27 @@ export default function PagamentosPage() {
             "Este atendimento já consta como pago."
           );
         }
+        if (centavos(consulta.data.valor) !== centavos(numero)) {
+          throw new Error("O valor original do atendimento diverge da cobrança. Confira antes de receber; nenhum valor será sobrescrito.");
+        }
+        if (consulta.data.agendamento_id) {
+          const { data: agAtual, error: erroAgAtual } = await supabase.from("agendamentos")
+            .select("plano,pagamento_status,valor_total").eq("id", consulta.data.agendamento_id).single();
+          if (erroAgAtual) throw erroAgAtual;
+          if ((agAtual.plano && normal(agAtual.plano) !== "avulso") || cancelado(agAtual.pagamento_status) || centavos(agAtual.valor_total) !== centavos(numero)) {
+            throw new Error("A cobrança mudou, foi convertida ou cancelada. Atualize e confira antes de receber.");
+          }
+        }
+        escritaIniciada = true;
         const resultado = await supabase
           .from("atendimentos")
           .update({
-            valor: numero,
             forma_pagamento: forma,
             data_pagamento: dataPagamento,
           })
           .eq("id", linha.atendimentoId)
           .is("forma_pagamento", null)
+          .eq("valor", consulta.data.valor)
           .select("id");
         if (resultado.error) throw resultado.error;
         if (!resultado.data?.length) {
@@ -786,8 +878,8 @@ export default function PagamentosPage() {
                 pagamentoGravado = true;
       }
       if (selecionados.length) {
-        // Função SQL instalada: todos os extras selecionados são pagos ou nenhum.
-        // A cobrança principal usa o fluxo financeiro já existente, independente.
+        // Contrato da RPC ainda exige inspeção; não presumir atomicidade do lote.
+        escritaIniciada = true;
         const { data: qtd, error: erroExtras } = await supabase.rpc("receber_extras_agrominas", {
           p_ids: selecionados.map(e => e.id), p_forma: forma, p_data: dataPagamento,
         });
@@ -804,34 +896,45 @@ export default function PagamentosPage() {
         e instanceof Error
           ? e.message
           : "Não foi possível registrar o pagamento.";
-      if (pagamentoGravado) {
+      if (pagamentoGravado || escritaIniciada) {
         setSelecionado(null);
-        setAviso(`Atenção: ${mensagem}`);
+        setAviso(`Atenção: ${mensagem} O resultado de uma gravação pode não ter sido confirmado. Confira os registros atualizados antes de iniciar outra tentativa.`);
         await carregar();
       } else {
         setErroModal(mensagem);
       }
     } finally {
+      gravacaoEmAndamento.current = false;
       setSalvando(false);
     }
   }
   function abrirEstorno(linha: Linha) {
     if (linha.situacao !== "pago" || !linha.estornoTipo || !linha.estornoId) return;
+    if (linha.estornoTipo === "avulso" && conversoes.some(c => c.atendimento_original_id === linha.estornoId)) {
+      setErro("Este recebimento sustenta o crédito de uma conversão. O estorno exige revisão transacional para preservar o saldo e o histórico."); return;
+    }
     setEstornando(linha);
     setMotivoEstorno("");
     setErroEstorno("");
   }
   async function confirmarEstorno() {
-    if (!estornando?.estornoTipo || !estornando.estornoId || salvandoEstorno) return;
+    if (!estornando?.estornoTipo || !estornando.estornoId || salvandoEstorno || gravacaoEmAndamento.current) return;
     const motivo = motivoEstorno.trim();
     if (motivo.length < 10 || motivo.length > 500) {
       setErroEstorno("Descreva o motivo com 10 a 500 caracteres.");
       return;
     }
     if (!window.confirm(`Desfazer este recebimento de ${moeda(estornando.valor)}?\n\n${estornando.tutor} · ${estornando.pet}\n${estornando.titulo}\n\nA cobrança voltará a ficar pendente. Esta ação será auditada.`)) return;
+    gravacaoEmAndamento.current = true;
     setSalvandoEstorno(true);
     setErroEstorno("");
     try {
+      if (estornando.estornoTipo === "avulso") {
+        const { data: cvs, error: erroCvs } = await supabase.from("conversoes_avulso_plano")
+          .select("id").eq("atendimento_original_id", estornando.estornoId).limit(1);
+        if (erroCvs) throw erroCvs;
+        if (cvs?.length) throw new Error("O avulso sustenta crédito de conversão. O estorno genérico não pode recalcular esse crédito com segurança.");
+      }
       const { error } = await supabase.rpc("desfazer_pagamento_agrominas", {
         p_tipo: estornando.estornoTipo,
         p_id: estornando.estornoId,
@@ -841,10 +944,11 @@ export default function PagamentosPage() {
       setEstornando(null);
       await carregar();
       setAba("pendente");
-      setAviso("Recebimento desfeito. Cobrança pendente e histórico de auditoria preservado.");
+      setAviso("A função de estorno confirmou a operação. Confira o saldo atualizado; a preservação da auditoria depende do contrato SQL do banco.");
     } catch (e: unknown) {
       setErroEstorno(e instanceof Error ? e.message : "Não foi possível desfazer o pagamento.");
     } finally {
+      gravacaoEmAndamento.current = false;
       setSalvandoEstorno(false);
     }
   }
@@ -906,9 +1010,13 @@ export default function PagamentosPage() {
               ↻ Atualizar
             </button>
           </header>
+          {alertasConversoes.length > 0 && <div role="alert" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <strong>Conversões para conferir</strong>
+            {alertasConversoes.map(a => <p key={a.chave} className="mt-2">{clientes.find(c => c.id === pets.find(p => p.id === a.petId)?.cliente_id)?.nome || "Tutor não identificado"} · {pets.find(p => p.id === a.petId)?.nome || "Pet não identificado"} · Ciclo {a.ciclo}: {a.mensagem}</p>)}
+          </div>}
           {erro && (
             <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              Erro ao carregar: {erro}
+              Atenção: {erro}
             </div>
           )}
           {aviso && (
@@ -1047,6 +1155,9 @@ export default function PagamentosPage() {
                         🐾 {linha.pet}
                       </p>
                                             <p className="mt-1 text-sm text-gray-500">{linha.titulo}</p>
+                                            {linha.situacao === "pendente" && linha.totalCobranca != null && linha.tipo !== "extras" && (
+                                              <p className="mt-1 text-xs text-gray-500">Total base + extras: {moeda(linha.totalCobranca)} · Saldo total: {moeda(linha.saldoCobranca ?? null)}</p>
+                                            )}
                       {!!linha.extras?.length && (
                         <div className="mt-2 space-y-1 text-sm text-gray-600">
                           {linha.tipo !== "extras" && <p>Valor do {linha.tipo === "plano" ? "plano" : "atendimento"}: {moeda(linha.valor)}</p>}
@@ -1059,6 +1170,7 @@ export default function PagamentosPage() {
                           ? `Recebido em ${dataBR(linha.dataPagamento)} · ${linha.forma}`
                           : `Referência: ${dataBR(linha.data)}`}
                       </p>
+                      {linha.chave.startsWith("conversao-") && <p className="mt-1 text-xs text-amber-700">Saldo de conversão: o cancelamento de cobrança comum não se aplica. Crédito e parcelas permanecem registrados.</p>}
                       {linha.observacao && (
                         <p className="mt-2 max-w-xl text-xs text-amber-700">
                           {linha.observacao}
@@ -1074,7 +1186,7 @@ export default function PagamentosPage() {
                                                       {linha.extras?.length ? "Total com adicionais" : linha.tipo === "plano" ? "Total do ciclo" : linha.tipo === "avulso" ? "Atendimento" : "Serviço extra"}
                         </p>
                       </div>
-                      {linha.situacao === "pendente" && linha.tipo === "plano" && (
+                      {linha.situacao === "pendente" && linha.tipo === "plano" && podeCancelarCobrancaComum(linha.petId, linha.ciclo, conversoes) && (
     <button
       type="button"
       disabled={cancelando}

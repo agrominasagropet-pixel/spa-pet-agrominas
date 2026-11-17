@@ -4,7 +4,8 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { associarDadosAgenda, CAMPOS_PETS_AGENDA, confirmarLeituraAgenda, ErroLeituraAgenda } from "@/lib/agenda-dados";
 import { paginar } from "@/lib/paginacao";
-import { resumirCiclo, resumirAvulso, type ConversaoFinanceira, type ParcelaConversao } from "@/lib/financeiro";
+import { extraRecebimentoConfirmado, resumirCiclo, resumirAvulso, type ConversaoFinanceira, type ParcelaConversao } from "@/lib/financeiro";
+import { cobrancaCancelada } from "@/lib/conferencia-financeira";
 import MenuLateral from "@/app/components/MenuLateral";
 
 type Turno = "Manhã" | "Tarde";
@@ -384,7 +385,13 @@ type DadosPagamentoComprovante = {
   texto?: string;
 };
 
-type ExtraComprovante = { id: string; agendamento_id?: string; valor: number; pagamento_status: string; nome_servico: string };
+type ExtraComprovante = { id: string; agendamento_id?: string; valor: number; pagamento_status: string; forma_pagamento?: string | null; data_pagamento?: string | null; nome_servico: string };
+
+function statusExtraComprovante(extra: ExtraComprovante) {
+  return cobrancaCancelada(extra.pagamento_status) ? "Cancelado"
+    : extraRecebimentoConfirmado(extra) ? "Pago"
+      : extra.pagamento_status.trim().toLowerCase() === "pago" ? "A confirmar" : "Pendente";
+}
 
 type ItemComprovanteGrupo = {
   petNome: string;
@@ -488,9 +495,12 @@ function imprimirComprovante(
   const valor = pagamento.valor === undefined ? agendamento.valor_total : pagamento.valor;
   const nome = escaparHTMLComprovante;
   const identificacao = obterIdentificacaoBanho(agendamento);
-  const extrasAtivos = extras.filter(extra => extra.pagamento_status !== "Cancelado");
-  const extrasRecebidos = extrasAtivos.filter(extra => extra.pagamento_status === "Pago").reduce((total, extra) => total + Number(extra.valor), 0);
-  const extrasPendentes = extrasAtivos.filter(extra => extra.pagamento_status !== "Pago").reduce((total, extra) => total + Number(extra.valor), 0);
+  const extrasAtivos = extras.filter(extra => !cobrancaCancelada(extra.pagamento_status));
+  const extrasRecebidos = extrasAtivos.filter(extraRecebimentoConfirmado).reduce((total, extra) => total + Number(extra.valor), 0);
+  const extrasPendentes = extrasAtivos.filter(extra => !extraRecebimentoConfirmado(extra)).reduce((total, extra) => total + Number(extra.valor), 0);
+  const valorBase = valor == null ? null : valor - extrasAtivos.reduce((total, extra) => total + Number(extra.valor), 0);
+  const recebidoBase = pagamento.recebido == null ? 0 : pagamento.recebido - extrasRecebidos;
+  const saldoBase = pagamento.saldo == null ? null : pagamento.saldo - extrasPendentes;
   const dados = `
     <div class="linha"><span class="rotulo">Tutor</span><span class="valor">${nome(agendamento.tutorNome || "Tutor não informado")}</span></div>
     <div class="linha"><span class="rotulo">Pet</span><span class="valor">${nome(agendamento.petNome || "Pet")}</span></div>
@@ -502,14 +512,17 @@ function imprimirComprovante(
     ${plano ? `<div class="detalhe">Plano ${nome(agendamento.plano || "")} ${agendamento.ciclo !== null ? `• Ciclo ${agendamento.ciclo}` : ""}</div>` : `<div class="detalhe">Atendimento avulso</div>`}
     ${identificacao ? `<div class="detalhe">${nome(identificacao)}</div>` : ""}
     <hr class="separador" />
-    <div class="etiqueta" style="text-align:center">${plano ? "VALOR TOTAL DO CICLO" : "VALOR DO ATENDIMENTO"}</div>
+    <div class="linha"><span class="rotulo">VALOR BASE</span><span class="valor">${nome(valorComprovante(valorBase))}</span></div>
+    <div class="etiqueta" style="text-align:center">${plano ? "TOTAL DO CICLO COM EXTRAS" : "TOTAL DO ATENDIMENTO COM EXTRAS"}</div>
     <div class="montante">${nome(valorComprovante(valor))}</div>
-    <div class="linha"><span class="rotulo">VALORES JÁ PAGOS</span><span class="valor">${nome(valorComprovante(pagamento.recebido ?? (pagamento.pago ? valor : 0)))}</span></div>
+    <div class="linha"><span class="rotulo">VALORES JÁ PAGOS DO PRINCIPAL</span><span class="valor">${nome(valorComprovante(recebidoBase))}</span></div>
     <div class="linha"><span class="rotulo">CRÉDITO AVULSO REGISTRADO</span><span class="valor">${nome(formatarValor(pagamento.credito ?? 0))}</span></div>
-    <div class="linha"><span class="rotulo">${plano ? "SALDO DO PLANO" : "SALDO DO ATENDIMENTO"}</span><span class="valor">${nome(valorComprovante(pagamento.saldo === undefined ? (pagamento.pago ? 0 : valor) : pagamento.saldo))}</span></div>
-    ${extrasAtivos.map(extra => `<div class="linha"><span class="rotulo">Extra: ${nome(extra.nome_servico)} (${nome(extra.pagamento_status)})</span><span class="valor">${nome(formatarValor(extra.valor))}</span></div>`).join("")}
+    <div class="linha"><span class="rotulo">${plano ? "SALDO DO PRINCIPAL" : "SALDO DO ATENDIMENTO"}</span><span class="valor">${nome(valorComprovante(saldoBase === undefined ? (pagamento.pago ? 0 : valorBase) : saldoBase))}</span></div>
+    ${extrasAtivos.map(extra => `<div class="linha"><span class="rotulo">Extra: ${nome(extra.nome_servico)} (${nome(statusExtraComprovante(extra))})</span><span class="valor">${nome(formatarValor(extra.valor))}</span></div>`).join("")}
     <div class="linha"><span class="rotulo">EXTRAS RECEBIDOS</span><span class="valor">${nome(formatarValor(extrasRecebidos))}</span></div>
     <div class="linha"><span class="rotulo">EXTRAS PENDENTES</span><span class="valor">${nome(formatarValor(extrasPendentes))}</span></div>
+    <div class="linha"><span class="rotulo">RECEBIDO TOTAL</span><span class="valor">${nome(valorComprovante(pagamento.recebido ?? (pagamento.pago ? valor : 0)))}</span></div>
+    <div class="linha"><span class="rotulo">SALDO TOTAL</span><span class="valor">${nome(valorComprovante(pagamento.saldo === undefined ? (pagamento.pago ? 0 : valor) : pagamento.saldo))}</span></div>
     <div class="pagamento"><strong>${pagamento.pago ? "PAGO" : "PENDENTE / A CONFERIR"}</strong>${pagamento.pago && pagamento.forma ? `<span>${nome(pagamento.forma)}</span>` : ""}</div>
     ${plano ? `<div class="observacao">O valor indicado refere-se ao ciclo completo do plano, não apenas ao banho desta data.${valor === null || valor === undefined ? " Confira o valor total do plano no cadastro antes de cobrar." : ""}</div>` : ""}`;
   documentoComprovante(dados, "COMPROVANTE DE ATENDIMENTO");
@@ -543,11 +556,11 @@ function imprimirComprovanteGrupo(
       totalCredito += item.credito ?? 0;
       totalPendente += item.saldo === undefined ? (item.pago ? 0 : Number(item.valor || 0)) : Number(item.saldo || 0);
     }
-    const extras = (item.extras || []).filter(extra => extra.pagamento_status !== "Cancelado" && !extrasContabilizados.has(extra.id));
+    const extras = (item.extras || []).filter(extra => !cobrancaCancelada(extra.pagamento_status) && !extrasContabilizados.has(extra.id));
     for (const extra of extras) {
       extrasContabilizados.add(extra.id);
       totalGeral += Number(extra.valor);
-      if (extra.pagamento_status === "Pago") totalPago += Number(extra.valor);
+      if (extraRecebimentoConfirmado(extra)) totalPago += Number(extra.valor);
       else totalPendente += Number(extra.valor);
     }
     const tipo = item.plano ? `Plano ${item.tipoPlano || ""}${item.ciclo !== null ? ` • Ciclo ${item.ciclo}` : ""}` : "Atendimento avulso";
@@ -559,7 +572,7 @@ function imprimirComprovanteGrupo(
       <div class="linha"><span class="rotulo">${item.plano ? "Total do ciclo" : "Valor"}</span><span class="valor"><strong>${nome(valorComprovante(item.valor))}</strong></span></div>
       <div class="detalhe"><strong>${item.pago ? "PAGO" : "PENDENTE"}</strong>${item.pago && item.forma ? ` • ${nome(item.forma)}` : ""}</div>
       ${repetido ? `<div class="observacao">Mesmo ciclo: valor contabilizado uma única vez.</div>` : ""}
-      ${extras.map(extra => `<div class="detalhe">Extra: ${nome(extra.nome_servico)} • ${nome(extra.pagamento_status)} • ${nome(formatarValor(extra.valor))}</div>`).join("")}
+      ${extras.map(extra => `<div class="detalhe">Extra: ${nome(extra.nome_servico)} • ${nome(statusExtraComprovante(extra))} • ${nome(formatarValor(extra.valor))}</div>`).join("")}
     </div>`;
   }).join("");
   const dados = `
@@ -690,13 +703,13 @@ export default function AgendaPage() {
               .order("data_pagamento").order("id").range(inicio, fim), "pagamentos")
           : Promise.resolve({ data: [] as PagamentoPlano[], error: null }),
         administrador ? paginar<ConversaoFinanceira>((inicio, fim) => supabase.from("conversoes_avulso_plano")
-          .select("id,pet_id,ciclo,valor_plano,credito_avulso").order("id").range(inicio, fim), "conversões")
+          .select("id,pet_id,ciclo,valor_plano,credito_avulso,atendimento_original_id").order("id").range(inicio, fim), "conversões")
           : Promise.resolve({ data: [] as ConversaoFinanceira[], error: null }),
         administrador ? paginar<ParcelaConversao>((inicio, fim) => supabase.from("recebimentos_parciais_planos")
           .select("id,conversao_id,valor,forma_pagamento").order("id").range(inicio, fim), "parcelas")
           : Promise.resolve({ data: [] as ParcelaConversao[], error: null }),
         administrador ? paginar<ExtraComprovante>((inicio, fim) => supabase.from("servicos_extras_agendamento")
-          .select("id,agendamento_id,nome_servico,valor,pagamento_status").order("id").range(inicio, fim), "extras")
+          .select("id,agendamento_id,nome_servico,valor,pagamento_status,forma_pagamento,data_pagamento").order("id").range(inicio, fim), "extras")
           : Promise.resolve({ data: [] as ExtraComprovante[], error: null }),
       ]);
 
@@ -776,9 +789,13 @@ export default function AgendaPage() {
   }
 
   function obterPagamentoDoCiclo(agendamento: Agendamento) {
+    const grupo = ehPlano(agendamento)
+      ? agendamentos.filter(item => item.pet_id === agendamento.pet_id && item.ciclo === agendamento.ciclo)
+      : [agendamento];
+    const extras = extrasComprovantes.filter(extra => grupo.some(item => item.id === extra.agendamento_id));
     const resumo = ehPlano(agendamento)
-      ? resumirCiclo(agendamentos.filter(item => item.pet_id === agendamento.pet_id && item.ciclo === agendamento.ciclo), pagamentosPlanos, conversoes, parcelas)
-      : resumirAvulso(agendamento.valor_total, atendimentos.filter(item => item.agendamento_id === agendamento.id), agendamento.pagamento_status);
+      ? resumirCiclo(grupo, pagamentosPlanos, conversoes, parcelas, extras, atendimentos)
+      : resumirAvulso(agendamento.valor_total, atendimentos.filter(item => item.agendamento_id === agendamento.id), agendamento.pagamento_status, extras);
     const textos = { pago: "PAGO", pendente: "PENDENTE", parcial: "PARCIAL", cancelado: "CANCELADO", conferir: "A CONFERIR" };
     return {
       ...resumo,
@@ -1828,8 +1845,11 @@ export default function AgendaPage() {
   }
 
   function renderPetDoGrupo(agendamento: Agendamento) {
-    const extrasDoBanho = extrasComprovantes.filter(e => e.agendamento_id === agendamento.id && e.pagamento_status !== "Cancelado");
-    const totalExtrasBanho = extrasDoBanho.reduce((t, e) => t + Number(e.valor || 0), 0);
+    const extrasDoBanho = extrasComprovantes.filter(e => e.agendamento_id === agendamento.id && !cobrancaCancelada(e.pagamento_status));
+    const agendamentosDaCobranca = ehPlano(agendamento)
+      ? agendamentos.filter(item => item.pet_id === agendamento.pet_id && item.ciclo === agendamento.ciclo)
+      : [agendamento];
+    const extrasDaCobranca = extrasComprovantes.filter(extra => agendamentosDaCobranca.some(item => item.id === extra.agendamento_id));
     const concluido = estaConcluido(agendamento);
     const cancelado = estaCancelado(agendamento);
     const pagamento = ehAdmin ? obterPagamentoDoCiclo(agendamento) : null;
@@ -1887,19 +1907,16 @@ export default function AgendaPage() {
               )}
 
               <p className="mt-1 text-sm text-gray-600">🛁 {obterNomeServico(agendamento)}</p>
-              {ehAdmin && <p className="mt-1 text-sm text-slate-600">{ehPlano(agendamento) ? "Valor do ciclo" : "Valor do atendimento"}: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(pagamento.valor)}</strong></p>}
+              {ehAdmin && <p className="mt-1 text-sm text-slate-600">{ehPlano(agendamento) ? "Total do ciclo com extras ativos" : "Total do atendimento com extras ativos"}: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(pagamento.valor)}</strong></p>}
               {pagamento && <p className="mt-1 text-sm text-slate-600">Recebido: {formatarValor(pagamento.recebido)} • Crédito: {formatarValor(pagamento.credito)} • Saldo: {valorComprovante(pagamento.saldo)}</p>}
               {ehAdmin && extrasDoBanho.length > 0 && (
                 <div className="mt-1 space-y-1 text-sm text-slate-600">
                   {extrasDoBanho.map(extra => (
                     <p key={extra.id}>
                       + {extra.nome_servico}: <strong>{formatarValor(Number(extra.valor))}</strong>
-                      <span className="text-xs text-slate-500"> · {extra.pagamento_status}</span>
+                      <span className="text-xs text-slate-500"> · {statusExtraComprovante(extra)}</span>
                     </p>
                   ))}
-                  <p className="font-semibold text-slate-700">
-                    Total geral: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(Number(pagamento.valor) + totalExtrasBanho)}</strong>
-                  </p>
                 </div>
               )}
               {agendamento.observacoes?.trim() && (
@@ -1921,7 +1938,7 @@ export default function AgendaPage() {
                   agendamento,
                   obterNomeServico(agendamento),
                   pagamento,
-                  extrasDoBanho
+                  extrasDaCobranca
                 )
               }
               className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
@@ -2031,14 +2048,24 @@ export default function AgendaPage() {
                   grupo.agendamentos.filter(a => !estaCancelado(a)).map((agendamento) => {
                     const pagamento = obterPagamentoDoCiclo(agendamento);
                     const plano = Boolean(agendamento.plano && agendamento.plano !== "Avulso");
+                    const agendamentosDaCobranca = plano
+                      ? agendamentos.filter(item => item.pet_id === agendamento.pet_id && item.ciclo === agendamento.ciclo)
+                      : [agendamento];
+                    const extrasDaCobranca = extrasComprovantes.filter(extra => agendamentosDaCobranca.some(item => item.id === extra.agendamento_id)
+                      && extra.pagamento_status.trim().toLowerCase() !== "cancelado" && extra.pagamento_status.trim().toLowerCase() !== "cancelada");
+                    const extrasRecebidos = extrasDaCobranca.filter(extraRecebimentoConfirmado)
+                      .reduce((total, extra) => total + Number(extra.valor), 0);
+                    const extrasPendentes = extrasDaCobranca.filter(extra => !extraRecebimentoConfirmado(extra))
+                      .reduce((total, extra) => total + Number(extra.valor), 0);
+                    const totalExtras = extrasDaCobranca.reduce((total, extra) => total + Number(extra.valor), 0);
                     return {
                       petNome: agendamento.petNome || "Pet",
                       servicoNome: obterNomeServico(agendamento),
                       identificacao: obterIdentificacaoBanho(agendamento),
-                      valor: pagamento.valor,
-                      recebido: pagamento.recebido,
+                      valor: pagamento.valor === null ? null : pagamento.valor - totalExtras,
+                      recebido: pagamento.recebido - extrasRecebidos,
                       credito: pagamento.credito,
-                      saldo: pagamento.saldo,
+                      saldo: pagamento.saldo === null ? null : pagamento.saldo - extrasPendentes,
                       texto: pagamento.texto,
                       extras: extrasComprovantes.filter(extra => extra.agendamento_id === agendamento.id),
                       pago: pagamento.pago,
@@ -2657,7 +2684,7 @@ export default function AgendaPage() {
                   )}
                   {extrasComprovantes.filter(extra => extra.agendamento_id === agendamentoSelecionado.id).map(extra => (
                     <div key={extra.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-3 text-sm">
-                      <span>{extra.nome_servico} — {formatarValor(Number(extra.valor))} ({extra.pagamento_status})</span>
+                      <span>{extra.nome_servico} — {formatarValor(Number(extra.valor))} ({statusExtraComprovante(extra)})</span>
                       {extra.pagamento_status === "Pendente" && (
                         <button type="button" disabled={salvandoExtra} onClick={() => void cancelarExtraAgendamento(extra)}
                           className="rounded-lg border border-rose-200 px-3 py-1 font-semibold text-rose-700 disabled:opacity-50">Cancelar extra</button>
@@ -2666,7 +2693,7 @@ export default function AgendaPage() {
                   ))}
                 </div>
                 <p className="mt-3 text-sm font-semibold text-emerald-900">
-                  Total de extras ativos: {formatarValor(extrasComprovantes.filter(extra => extra.agendamento_id === agendamentoSelecionado.id && extra.pagamento_status !== "Cancelado").reduce((total, extra) => total + Number(extra.valor || 0), 0))}
+                  Total de extras ativos: {formatarValor(extrasComprovantes.filter(extra => extra.agendamento_id === agendamentoSelecionado.id && !cobrancaCancelada(extra.pagamento_status)).reduce((total, extra) => total + Number(extra.valor || 0), 0))}
                 </p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <select value={servicoExtraId} disabled={salvandoExtra}
