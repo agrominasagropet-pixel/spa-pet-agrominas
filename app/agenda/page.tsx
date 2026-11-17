@@ -75,6 +75,8 @@ type Agendamento = {
 // Nomes padronizados apenas na interface; preserva IDs e dados históricos.
 const NOMES_SERVICOS: Record<string, string> = {
   "Banho": "Banho Completo",
+  "Banho + Tosa": "Banho com Tosa Completa",
+  "Tosa higiênica": "Banho com Tosa Higiênica",
   "Banho + Tosa Higiênica": "Banho com Tosa Higiênica",
   "Banho + Tosa Completa": "Banho com Tosa Completa",
   "Tosa Máquina": "Tosa na Máquina",
@@ -273,9 +275,9 @@ function abrirWhatsApp(
           "",
           `Temos uma ótima notícia! ${sorriso}`,
           "",
-          `O ${nomePet} já está prontinho no SPA PET AGROMINAS. ${cachorro}${coracao}`,
+          `${artigo === "a" ? "A" : "O"} ${nomePet} já está ${artigo === "a" ? "prontinha" : "prontinho"} no SPA PET AGROMINAS. ${cachorro}${coracao}`,
           "",
-          "O banho e tosa foram concluídos e ele já pode ser retirado.",
+          `O banho e tosa foram concluídos e ${artigo === "a" ? "ela" : "ele"} já pode ser ${artigo === "a" ? "retirada" : "retirado"}.`,
           "",
           `Obrigado pela confiança! ${patas}`,
         ].join("\n");
@@ -297,7 +299,23 @@ function abrirWhatsApp(
   }
 }
 
-function abrirWhatsAppGrupo(
+function avisarPetsProntos(numero: string, tutor: string, itens: { nome: string; sexo: string | null }[]) {
+  const nomes = itens.map(item => item.nome);
+  const lista = nomes.map(nome => `🐾 ${nome}`).join("\n");
+  const feminino = itens.length === 1 && obterArtigoPet(itens[0].sexo) === "a";
+  const todasFemeas = itens.length > 1 && itens.every(item => obterArtigoPet(item.sexo) === "a");
+  const mensagem = [
+    `Olá, ${tutor}! 🐾`, "",
+    "Temos uma ótima notícia! 😊", "",
+    nomes.length === 1 ? `${feminino ? "A" : "O"} ${nomes[0]} já está ${feminino ? "prontinha" : "prontinho"}! 🐶💚` : `${todasFemeas ? "Suas pets já estão prontinhas" : "Seus pets já estão prontinhos"}! 🐶💚`,
+    nomes.length > 1 ? lista : "", "",
+    "Todos os atendimentos foram concluídos e os pets já estão disponíveis para retirada.", "",
+    "Obrigado pela confiança! 🐾", "SPA PET AGROMINAS"
+  ].filter((linha, i, arr) => linha !== "" || arr[i - 1] !== "").join("\n");
+  abrirMensagemWhatsApp(numero, mensagem);
+}
+
+  function abrirWhatsAppGrupo(
   numero: string,
   tutorNome: string,
   data: string,
@@ -355,14 +373,6 @@ function abrirWhatsAppGrupo(
     alert("O navegador bloqueou a janela do WhatsApp. Permita pop-ups para este site e tente novamente.");
   }
 }
-function normalizarStatusPagamento(status: string | null) {
-  return (status || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
 // Impressão térmica AGROMINAS: valores de ciclos só são exibidos quando confiáveis.
 type DadosPagamentoComprovante = {
   pago: boolean;
@@ -414,8 +424,8 @@ function documentoComprovante(conteudo: string, titulo: string) {
       html, body { margin: 0; padding: 0; }
       body { width: 80mm; padding: 5mm 4mm 7mm; color: #000; background: #fff;
              font: 11px/1.45 Arial, Helvetica, sans-serif; overflow-wrap: anywhere; }
-      .marca { text-align: center; font-size: 23px; font-weight: 900; letter-spacing: 1.1px; }
-      .submarca { text-align: center; font-size: 10px; letter-spacing: 1.8px; margin-top: 1px; }
+      .logo-impressao { display: block; width: 47mm; max-height: 42mm; height: auto; object-fit: contain; margin: 0 auto 2mm; }
+      .marca { text-align: center; font-size: 15px; font-weight: 900; letter-spacing: .6px; }
       .documento { text-align: center; font-size: 11px; font-weight: 800; margin: 10px 0; }
       .separador { border: 0; border-top: 1px dashed #000; margin: 10px 0; }
       .linha { display: flex; gap: 5px; margin: 5px 0; align-items: baseline; }
@@ -433,8 +443,8 @@ function documentoComprovante(conteudo: string, titulo: string) {
       .rodape { text-align: center; font-size: 10px; margin-top: 16px; }
       @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style></head><body>
+    <img class="logo-impressao" src="/logo-agrominas-impressao.png" alt="Logo AGROMINAS" />
     <div class="marca">SPA PET AGROMINAS</div>
-    <div class="submarca">BANHO E TOSA</div>
     <hr class="separador" />
     <div class="documento">${escaparHTMLComprovante(titulo)}</div>
     ${conteudo}
@@ -445,7 +455,25 @@ function documentoComprovante(conteudo: string, titulo: string) {
   janela.document.write(html);
   janela.document.close();
   janela.focus();
-  setTimeout(() => { if (!janela.closed) janela.print(); }, 450);
+  // Aguarda a logo carregar antes de abrir a janela de impressão.
+  const imagemLogo = janela.document.querySelector<HTMLImageElement>(".logo-impressao");
+  let impressaoIniciada = false;
+  const iniciarImpressao = () => {
+    if (impressaoIniciada || janela.closed) return;
+    impressaoIniciada = true;
+    janela.focus();
+    janela.print();
+  };
+  if (imagemLogo?.complete) {
+    setTimeout(iniciarImpressao, 250);
+  } else if (imagemLogo) {
+    imagemLogo.addEventListener("load", () => setTimeout(iniciarImpressao, 250), { once: true });
+    imagemLogo.addEventListener("error", () => {
+      iniciarImpressao();
+    }, { once: true });
+  } else {
+    setTimeout(iniciarImpressao, 250);
+  }
 }
 
 function imprimirComprovante(
@@ -457,7 +485,7 @@ function imprimirComprovante(
   const plano = Boolean(agendamento.plano && agendamento.plano !== "Avulso");
   // Nos planos desta Agenda, valor_total representa o pacote inteiro,
   // repetido em cada agendamento do mesmo ciclo.
-  const valor = pagamento.valor ?? agendamento.valor_total;
+  const valor = pagamento.valor === undefined ? agendamento.valor_total : pagamento.valor;
   const nome = escaparHTMLComprovante;
   const identificacao = obterIdentificacaoBanho(agendamento);
   const extrasAtivos = extras.filter(extra => extra.pagamento_status !== "Cancelado");
@@ -553,7 +581,7 @@ function imprimirComprovanteGrupo(
 }
 
 export default function AgendaPage() {
-  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [, setClientes] = useState<Cliente[]>([]);
   const [pets, setPets] = useState<Pet[]>([]);
   const [servicos, setServicos] = useState<Servico[]>([]);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
@@ -568,7 +596,7 @@ export default function AgendaPage() {
   const [renovacao, setRenovacao] = useState<Agendamento | null>(null);
   const [renovacoesGrupo, setRenovacoesGrupo] = useState<Agendamento[]>([]);
   const [dataInicioRenovacao, setDataInicioRenovacao] = useState("");
-  const [horarioRenovacao, setHorarioRenovacao] = useState("08:30");
+  const [horarioRenovacao, setHorarioRenovacao] = useState("08:00");
   const [salvandoRenovacao, setSalvandoRenovacao] = useState(false);
   const [erroExtra, setErroExtra] = useState("");
   const [carregando, setCarregando] = useState(true);
@@ -591,6 +619,7 @@ export default function AgendaPage() {
   const [observacoes, setObservacoes] = useState("");
   const [valorAgendamento, setValorAgendamento] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [salvandoValor, setSalvandoValor] = useState(false);
   const registroAtendimentoEmAndamento = useRef(false);
   const [modoReagendamento, setModoReagendamento] = useState<"unico" | "ciclo">("unico");
   const [buscaAgenda, setBuscaAgenda] = useState("");
@@ -750,7 +779,7 @@ export default function AgendaPage() {
     const resumo = ehPlano(agendamento)
       ? resumirCiclo(agendamentos.filter(item => item.pet_id === agendamento.pet_id && item.ciclo === agendamento.ciclo), pagamentosPlanos, conversoes, parcelas)
       : resumirAvulso(agendamento.valor_total, atendimentos.filter(item => item.agendamento_id === agendamento.id), agendamento.pagamento_status);
-    const textos = { pago: "PAGO", pendente: "N?O PAGO", parcial: "PARCIAL", cancelado: "CANCELADO", conferir: "A CONFERIR" };
+    const textos = { pago: "PAGO", pendente: "PENDENTE", parcial: "PARCIAL", cancelado: "CANCELADO", conferir: "A CONFERIR" };
     return {
       ...resumo,
       pago: resumo.estado === "pago",
@@ -779,14 +808,14 @@ export default function AgendaPage() {
     setRenovacoesGrupo(unicos);
     setRenovacao(primeiro);
     setDataInicioRenovacao(adicionarDias(primeiro.data, primeiro.plano === "Quinzenal" ? 14 : 7));
-    setHorarioRenovacao(formatarHorario(primeiro.horario) < "12:00" ? "08:30" : "13:30");
+    setHorarioRenovacao(formatarHorario(primeiro.horario) < "13:30" ? "08:00" : "13:30");
   }
 
   async function confirmarRenovacao() {
-    if (!renovacao || salvandoRenovacao || !ehAdmin) return;
+    if (!renovacao || salvandoRenovacao || !perfilUsuario) return;
     const selecionados = renovacoesGrupo.length ? renovacoesGrupo : [renovacao];
     if (!selecionados.every(podeRenovarCiclo)) { alert("Conclua os banhos dos ciclos atuais antes de renovar."); return; }
-    if (!dataValida(dataInicioRenovacao) || !["08:30", "13:30"].includes(horarioRenovacao)) {
+    if (!dataValida(dataInicioRenovacao) || !["08:00", "13:30"].includes(horarioRenovacao)) {
       alert("Informe data e turno válidos."); return;
     }
     const planos = selecionados.map(ag => ({
@@ -850,6 +879,115 @@ export default function AgendaPage() {
       alert(erro instanceof Error ? erro.message : "Não foi possível renovar o ciclo.");
       await carregarDados();
     } finally { setSalvandoRenovacao(false); }
+  }
+
+  function banhosDoMesmoCiclo(ag: Agendamento) {
+    if (!ehPlano(ag)) return ag.plano && ag.plano !== "Avulso" ? (identificarCiclo(ag) || []) : [ag];
+    return agendamentos.filter(a => a.pet_id === ag.pet_id &&
+      a.plano === ag.plano && a.ciclo === ag.ciclo && !estaCancelado(a));
+  }
+
+  function valorSugerido(ag: Agendamento) {
+    if (ag.valor_total !== null && Number(ag.valor_total) > 0) return Number(ag.valor_total);
+    const outros = banhosDoMesmoCiclo(ag).find(a =>
+      a.valor_total !== null && Number(a.valor_total) > 0);
+    if (outros) return Number(outros.valor_total);
+    // Preço de serviço não é usado como preço de pacote: pode ser por banho.
+    if (!ehPlano(ag)) {
+      const preco = servicos.find(s => s.id === ag.servico_id)?.preco;
+      if (preco !== null && preco !== undefined && preco > 0) return preco;
+    }
+    return ag.valor_total;
+  }
+
+  async function salvarCorrecaoValor(ag: Agendamento, textoDigitado: string) {
+    if (!ehAdmin || salvandoValor || salvando) return false;
+    const texto = textoDigitado.trim();
+    const valor = Number(texto.replace(",", "."));
+    if (!texto || !/^\d+(?:[,.]\d{1,2})?$/.test(texto) || !Number.isFinite(valor)) {
+      alert("Informe um valor válido, por exemplo 180,00."); return false;
+    }
+    if (conversoes.some(c => c.pet_id === ag.pet_id && c.ciclo === ag.ciclo)) { alert("Este ciclo foi convertido. Confira o valor na página Pagamentos para preservar o crédito e as parcelas."); return false; }
+    const registros = banhosDoMesmoCiclo(ag);
+    if (registros.length === 0) { alert("Não foi possível identificar o ciclo."); return false; }
+    const pago = ehPlano(ag) && pagamentosPlanos.some(p =>
+      p.pet_id === ag.pet_id && p.ciclo === ag.ciclo);
+    const aviso = pago
+      ? "\nATENÇÃO: existe pagamento registrado. O valor do pagamento NÃO será alterado."
+      : "\nOs pagamentos já registrados NÃO serão alterados.";
+    if (!window.confirm(`Confirmar valor de ${formatarValor(valor)} para ${ag.petNome}?\n` +
+      (ehPlano(ag) ? `Serão atualizados ${registros.length} banhos deste ciclo.` : "Será atualizado este agendamento.") + aviso)) return false;
+    setSalvandoValor(true);
+    try {
+      const ids = registros.map(a => a.id);
+      const resposta = await supabase.from("agendamentos")
+        .update({ valor_total: valor }).in("id", ids).select("id");
+      if (resposta.error) throw resposta.error;
+      if (resposta.data?.length !== ids.length) throw new Error("Nem todos os registros foram confirmados. Atualize a Agenda e confira os valores.");
+      const conjunto = new Set(ids);
+      setAgendamentos(anteriores => anteriores.map(a =>
+        conjunto.has(a.id) ? { ...a, valor_total: valor } : a));
+      return true;
+    } catch (erro: unknown) {
+      console.error("Erro ao corrigir valor:", erro);
+      alert((erro instanceof Error ? erro.message : null) || "Não foi possível corrigir o valor.");
+      await carregarDados();
+      return false;
+    } finally { setSalvandoValor(false); }
+  }
+
+  function ehPrimeiroBanhoDeRenovacao(ag: Agendamento) {
+    return !estaCancelado(ag) && ehPlano(ag) &&
+      Number(ag.numero_banho) === 1;
+  }
+
+  function avisarRenovacaoWhatsApp(grupo: GrupoTutor) {
+    const candidatos = grupo.agendamentos.filter(ehPrimeiroBanhoDeRenovacao);
+    const unicos = candidatos.filter((a, i) => candidatos.findIndex(b => b.pet_id === a.pet_id) === i);
+    if (!unicos.length) return;
+    if (!grupo.whatsapp) { alert("Este tutor não possui WhatsApp cadastrado."); return; }
+
+    const artigos = unicos.map(ag => {
+      const sexo = pets.find(p => p.id === ag.pet_id)?.sexo || null;
+      const normalizado = (sexo || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+      const artigo = ["femea", "f", "feminino"].includes(normalizado) ? "da" :
+        ["macho", "m", "masculino"].includes(normalizado) ? "do" : "para";
+      return `${artigo} ${ag.petNome || "pet"}`;
+    });
+    const nomes = artigos.length === 1 ? artigos[0] :
+      `${artigos.slice(0, -1).join(", ")} e ${artigos[artigos.length - 1]}`;
+
+    const valores = unicos.map(ag => {
+      const resumo = ehAdmin ? obterPagamentoDoCiclo(ag) : null;
+      const valor = resumo?.estado === "conferir" ? null : resumo?.valor ?? valorSugerido(ag);
+      return valor === null || valor === undefined || !Number.isFinite(Number(valor)) || Number(valor) <= 0
+        ? null : Number(valor);
+    });
+    const todosComValor = valores.every(v => v !== null);
+    const total = valores.reduce<number>((soma, valor) => soma + (valor ?? 0), 0);
+    const linhas = unicos.flatMap((ag, indice) => {
+      const datasCiclo = agendamentos.filter(a =>
+        a.pet_id === ag.pet_id && a.ciclo === ag.ciclo &&
+        !estaCancelado(a) && Number(a.numero_banho) > 0
+      ).sort((a, b) => Number(a.numero_banho) - Number(b.numero_banho));
+      const datas = datasCiclo.map(a =>
+        `📅 ${a.numero_banho}º banho: ${formatarDataLocal(a.data)} às ${formatarHorario(a.horario)}`);
+      return [
+        `🐾 ${ag.petNome || "Pet"} — Plano ${ag.plano}`,
+        ...datas,
+        `💰 Valor do pacote: ${valores[indice] === null ? "A confirmar" : formatarValor(valores[indice])}`,
+        ""
+      ];
+    });
+    const mensagem = [
+      `Olá, ${grupo.tutorNome}! 🐾💚`, "",
+      `Passando para lembrar que hoje é dia de renovação ${unicos.length === 1 ? "do pacote de banho" : "dos pacotes de banho"} ${nomes} aqui no SPA PET AGROMINAS! 🐶🛁`, "",
+      "📅 Confira abaixo as datas programadas para este ciclo de cuidados:", "",
+      ...linhas,
+      `💚 Valor total: ${todosComValor ? formatarValor(total) : "A confirmar (há pacote sem valor cadastrado)"}`,
+      "", "Agradecemos pela confiança e esperamos vocês! 💚🐾"
+    ].join("\n");
+    abrirMensagemWhatsApp(grupo.whatsapp, mensagem);
   }
 
   function abrirNovoAgendamento(data?: string) {
@@ -950,7 +1088,7 @@ export default function AgendaPage() {
   }
 
   function fecharModalAgendamento() {
-    if (salvando) return;
+    if (salvando || salvandoValor) return;
 
     setModalAgendamento(false);
     setAgendamentoSelecionado(null);
@@ -1090,7 +1228,7 @@ export default function AgendaPage() {
           ? agendamentoSelecionado.status || "Agendado"
           : "Agendado",
         observacoes: observacoes || null,
-        ...(ehAdmin || !agendamentoSelecionado ? { valor_total: valor } : {}),
+        ...(!agendamentoSelecionado ? { valor_total: valor } : {}),
         servico_nome:
           agendamentoSelecionado && agendamentoSelecionado.servico_id === servicoSelecionado
             ? agendamentoSelecionado.servico_nome || servico?.nome || null
@@ -1158,6 +1296,7 @@ export default function AgendaPage() {
 
             registros.push({
               ...dadosBase,
+              servico_nome: ajustarServicoPorBanho(dadosBase.servico_nome, frequenciaAgendamento, i + 1),
               data,
               plano: frequenciaAgendamento,
               numero_banho: i + 1,
@@ -1187,12 +1326,12 @@ export default function AgendaPage() {
           `Pacote ${frequenciaAgendamento.toLowerCase()} criado com sucesso! ${quantidade} agendamentos foram registrados.`
         );
       }
-    } catch (erro: any) {
+    } catch (erro: unknown) {
       console.error("Erro ao salvar agendamento:", erro);
 
       alert(
         "Não foi possível salvar o agendamento.\n\n" +
-          (erro?.message || "Verifique os dados e tente novamente.")
+          ((erro instanceof Error ? erro.message : null) || "Verifique os dados e tente novamente.")
       );
     } finally {
       setSalvando(false);
@@ -1285,9 +1424,9 @@ export default function AgendaPage() {
       setAgendamentoSelecionado(null);
       await carregarDados();
       alert("Comparecimento desfeito. O banho voltou para Agendado.");
-    } catch (erro: any) {
+    } catch (erro: unknown) {
       console.error("Erro ao desfazer comparecimento:", erro);
-      alert(erro?.message || "Não foi possível desfazer o comparecimento.");
+      alert((erro instanceof Error ? erro.message : null) || "Não foi possível desfazer o comparecimento.");
       await carregarDados();
     } finally {
       setSalvando(false);
@@ -1331,9 +1470,9 @@ export default function AgendaPage() {
         throw new Error("O atendimento foi registrado, mas o status não foi atualizado. Atualize a página e confira antes de tentar novamente.");
       }
       await carregarDados();
-    } catch (erro: any) {
+    } catch (erro: unknown) {
       console.error("Erro ao concluir atendimento:", erro);
-      alert(erro?.message || "Não foi possível concluir o atendimento.");
+      alert((erro instanceof Error ? erro.message : null) || "Não foi possível concluir o atendimento.");
       await carregarDados();
     } finally {
       registroAtendimentoEmAndamento.current = false;
@@ -1432,7 +1571,7 @@ export default function AgendaPage() {
 
     return agendamentos.some(
       (item) =>
-        item.data === data
+        item.data === data && !estaCancelado(item)
     );
   }
 
@@ -1488,10 +1627,211 @@ export default function AgendaPage() {
     return grupos;
   }
 
+  async function compartilharAgendaImagem() {
+    const lista = agendamentos
+      .filter((a) => a.data === dataSelecionada && !estaCancelado(a))
+      .sort((a, b) =>
+        formatarHorario(a.horario).localeCompare(formatarHorario(b.horario)) ||
+        (a.tutorNome || "").localeCompare(b.tutorNome || "", "pt-BR") ||
+        (a.petNome || "").localeCompare(b.petNome || "", "pt-BR")
+      );
+
+    if (!lista.length) {
+      alert("Não há pets agendados nesta data para compartilhar.");
+      return;
+    }
+
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+      alert("Abra a Agenda no Chrome em localhost ou HTTPS para copiar a imagem.");
+      return;
+    }
+
+    // A logo oficial já é utilizada na impressão térmica do sistema.
+    const logo = new Image();
+    const logoCarregada = await new Promise<boolean>((resolve) => {
+      let terminou = false;
+      const finalizar = (ok: boolean) => {
+        if (!terminou) { terminou = true; resolve(ok); }
+      };
+      logo.onload = () => finalizar(true);
+      logo.onerror = () => finalizar(false);
+      logo.src = "/logo-agrominas-impressao.png";
+      if (logo.complete) finalizar(logo.naturalWidth > 0);
+    });
+
+    const largura = 1500;
+    const margem = 42;
+    const larguraTabela = largura - margem * 2;
+    const larguras = [46, 245, 170, 180, 440, 335];
+    const titulos = ["#", "TUTOR", "PET", "PLANO / BANHO", "SERVIÇO A REALIZAR", "OBSERVAÇÕES"];
+    const ctxMedida = document.createElement("canvas").getContext("2d");
+    if (!ctxMedida) { alert("Não foi possível preparar a imagem."); return; }
+
+    const linhasTexto = (ctx: CanvasRenderingContext2D, texto: string, larguraMax: number) => {
+      const palavras = (texto || "—").trim().split(/\s+/);
+      const linhas: string[] = [];
+      let linha = "";
+      for (const palavra of palavras) {
+        const proposta = linha ? `${linha} ${palavra}` : palavra;
+        if (ctx.measureText(proposta).width > larguraMax && linha) {
+          linhas.push(linha);
+          linha = palavra;
+        } else {
+          linha = proposta;
+        }
+      }
+      if (linha) linhas.push(linha);
+      return linhas.length ? linhas : ["—"];
+    };
+
+    type LinhaAgenda = { ag: Agendamento; altura: number; textos: string[][] };
+    type TurnoAgenda = { titulo: string; horario: string; linhas: LinhaAgenda[] };
+    const turnos: TurnoAgenda[] = [
+      { titulo: "MANHÃ", horario: "08:00", linhas: [] },
+      { titulo: "TARDE", horario: "13:30", linhas: [] },
+    ];
+
+    for (const ag of lista) {
+      const plano = ag.plano === "Mensal" || ag.plano === "Quinzenal" ? ag.plano : "Avulso";
+      const banho = ag.numero_banho ? `${ag.numero_banho}º${ag.ciclo && ag.ciclo > 1 ? ` / C${ag.ciclo}` : ""}` : "1º";
+      const textosBase = ["", ag.tutorNome || "Tutor não informado", ag.petNome || "Pet",
+        `${plano} • ${banho}`, obterNomeServico(ag), ag.observacoes?.trim() || "—"];
+      const textos = textosBase.map((texto, i) => {
+        ctxMedida.font = `${i === 1 || i === 2 ? "bold " : ""}22px Arial, sans-serif`;
+        return linhasTexto(ctxMedida, texto, larguras[i] - 22);
+      });
+      const maiorNumeroLinhas = Math.max(1, ...textos.map((item) => item.length));
+      const altura = Math.max(68, maiorNumeroLinhas * 30 + 24);
+      turnos[obterTurno(ag.horario) === "Manhã" ? 0 : 1].linhas.push({ ag, altura, textos });
+    }
+
+    const alturaCabecalho = 180;
+    const alturaTituloTurno = 70;
+    const alturaCabecalhoTabela = 46;
+    const espacoTurnos = 18;
+    const alturaRodape = 120;
+    const alturaTotal = alturaCabecalho + 28 + turnos.reduce((soma, turno) =>
+      soma + alturaTituloTurno + alturaCabecalhoTabela +
+      (turno.linhas.length ? turno.linhas.reduce((acc, linha) => acc + linha.altura, 0) : 70) +
+      espacoTurnos, 0) + alturaRodape;
+
+    // Não corta informações: se a imagem ultrapassar o limite de altura, informa o usuário.
+    if (alturaTotal > 14000) {
+      alert("A agenda deste dia é grande demais para copiar em uma única imagem. Entre em contato para habilitar a divisão em páginas.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = largura;
+    canvas.height = alturaTotal;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { alert("Não foi possível desenhar a imagem."); return; }
+
+    const bloco = (x: number, y: number, w: number, h: number, cor: string) => {
+      ctx.fillStyle = cor;
+      ctx.fillRect(x, y, w, h);
+    };
+    const escrever = (texto: string, x: number, y: number, cor: string, fonte: string) => {
+      ctx.fillStyle = cor;
+      ctx.font = fonte;
+      ctx.fillText(texto, x, y);
+    };
+    const arredondado = (x: number, y: number, w: number, h: number, raio: number, cor: string) => {
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, raio);
+      ctx.fillStyle = cor;
+      ctx.fill();
+    };
+
+    bloco(0, 0, largura, alturaTotal, "#f8fbfa");
+    bloco(0, 0, largura, alturaCabecalho, "#064e3b");
+
+    // A logo original é mantida em seu fundo branco, sem modificar suas cores.
+    if (logoCarregada) {
+      arredondado(margem, 24, 155, 132, 14, "#ffffff");
+      const escala = Math.min(139 / logo.naturalWidth, 119 / logo.naturalHeight);
+      const w = logo.naturalWidth * escala;
+      const h = logo.naturalHeight * escala;
+      ctx.drawImage(logo, margem + (155 - w) / 2, 24 + (132 - h) / 2, w, h);
+    } else {
+      escrever("AG", margem + 24, 105, "#ffffff", "bold 55px Arial, sans-serif");
+    }
+    escrever("AGROMINAS", 220, 83, "#ffffff", "bold 53px Arial, sans-serif");
+    escrever("BANHO E TOSA", 223, 121, "#a7f3d0", "bold 25px Arial, sans-serif");
+    bloco(650, 36, 2, 107, "#6ee7b7");
+    escrever("AGENDA DO DIA", 690, 80, "#ffffff", "bold 48px Arial, sans-serif");
+    escrever(formatarDataLocal(dataSelecionada), 692, 121, "#d1fae5", "26px Arial, sans-serif");
+    escrever("PROGRAMAÇÃO DA EQUIPE DO SPA", 692, 151, "#a7f3d0", "bold 18px Arial, sans-serif");
+
+    let y = alturaCabecalho + 28;
+    for (const turno of turnos) {
+      arredondado(margem, y, larguraTabela, 60, 12, "#d1fae5");
+      escrever(`${turno.titulo}  •  ${turno.horario}`, margem + 20, y + 40, "#064e3b", "bold 30px Arial, sans-serif");
+      const totalTurno = `${turno.linhas.length} ${turno.linhas.length === 1 ? "PET" : "PETS"}`;
+      ctx.font = "bold 23px Arial, sans-serif";
+      const larguraSelo = Math.max(125, ctx.measureText(totalTurno).width + 42);
+      arredondado(largura - margem - larguraSelo - 15, y + 10, larguraSelo, 40, 20, "#059669");
+      escrever(totalTurno, largura - margem - larguraSelo + 6, y + 38, "#ffffff", "bold 23px Arial, sans-serif");
+      y += alturaTituloTurno;
+
+      bloco(margem, y, larguraTabela, alturaCabecalhoTabela, "#065f46");
+      let x = margem;
+      titulos.forEach((titulo, i) => {
+        escrever(titulo, x + 10, y + 31, "#ffffff", "bold 17px Arial, sans-serif");
+        x += larguras[i];
+      });
+      y += alturaCabecalhoTabela;
+
+      if (!turno.linhas.length) {
+        bloco(margem, y, larguraTabela, 70, "#ffffff");
+        escrever("Nenhum pet agendado neste turno", margem + 20, y + 45, "#64748b", "23px Arial, sans-serif");
+        y += 70;
+      }
+      turno.linhas.forEach((linha, indice) => {
+        bloco(margem, y, larguraTabela, linha.altura, indice % 2 ? "#eef5f3" : "#ffffff");
+        bloco(margem, y + linha.altura - 1, larguraTabela, 1, "#dbe8e3");
+        let x = margem;
+        larguras.forEach((larguraColuna, coluna) => {
+          if (coluna) bloco(x, y, 1, linha.altura, "#e2e8e5");
+          if (coluna === 0) {
+            escrever(String(indice + 1), x + 15, y + 36, "#334155", "bold 22px Arial, sans-serif");
+          } else {
+            linha.textos[coluna].forEach((texto, indiceTexto) => {
+              escrever(texto, x + 10, y + 33 + indiceTexto * 30,
+                coluna === 2 ? "#065f46" : coluna === 4 ? "#0f172a" : coluna === 5 && texto !== "—" ? "#065f46" : "#334155",
+                `${coluna === 1 || coluna === 2 || coluna === 4 || (coluna === 5 && texto !== "—") ? "bold " : ""}22px Arial, sans-serif`);
+            });
+          }
+          x += larguraColuna;
+        });
+        y += linha.altura;
+      });
+      y += espacoTurnos;
+    }
+
+    arredondado(margem, y + 10, 345, 78, 13, "#d1fae5");
+    escrever("TOTAL DO DIA", margem + 20, y + 40, "#065f46", "bold 22px Arial, sans-serif");
+    escrever(`${lista.length} ${lista.length === 1 ? "PET" : "PETS"}`, margem + 20, y + 75, "#064e3b", "bold 34px Arial, sans-serif");
+    escrever("AGROMINAS  •  USO INTERNO DA EQUIPE", 820, y + 61, "#64748b", "bold 21px Arial, sans-serif");
+
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("A imagem não pôde ser gerada.");
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      alert("Agenda copiada! Abra o grupo das meninas no WhatsApp, pressione Ctrl + V e envie.");
+    } catch (erro) {
+      console.error("Erro ao copiar agenda:", erro);
+      alert("Não foi possível copiar a agenda. Confira a permissão da área de transferência no Chrome.");
+    }
+  }
+
   function renderPetDoGrupo(agendamento: Agendamento) {
+    const extrasDoBanho = extrasComprovantes.filter(e => e.agendamento_id === agendamento.id && e.pagamento_status !== "Cancelado");
+    const totalExtrasBanho = extrasDoBanho.reduce((t, e) => t + Number(e.valor || 0), 0);
     const concluido = estaConcluido(agendamento);
     const cancelado = estaCancelado(agendamento);
     const pagamento = ehAdmin ? obterPagamentoDoCiclo(agendamento) : null;
+    const rotuloPagamento = !pagamento ? null : pagamento.texto === "PAGO" ? "Pago" : pagamento.texto === "A CONFERIR" ? "A conferir" : pagamento.estado === "pendente" ? "Pendente" : pagamento.texto;
 
     const pet = pets.find(
       (item) => item.id === agendamento.pet_id
@@ -1515,6 +1855,9 @@ export default function AgendaPage() {
                 <h4 className="font-semibold text-emerald-950">
                   {agendamento.petNome || "Pet"}
                 </h4>
+                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${agendamento.plano === "Mensal" ? "border-violet-200 bg-violet-50 text-violet-700" : agendamento.plano === "Quinzenal" ? "border-sky-200 bg-sky-50 text-sky-700" : "border-slate-200 bg-slate-100 text-slate-700"}`}>
+                  {agendamento.plano === "Mensal" || agendamento.plano === "Quinzenal" ? agendamento.plano : "Avulso"}
+                </span>
 
                 <span
                   className={
@@ -1525,29 +1868,49 @@ export default function AgendaPage() {
                         : "rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800"
                   }
                 >
-                  {cancelado ? "Cancelado" : concluido ? "Concluído" : "Pendente"}
+                  {cancelado ? "Cancelado" : concluido ? "Compareceu" : "Ainda não veio"}
                 </span>
+                {rotuloPagamento && (
+                  <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${pagamento?.texto === "PAGO" ? "border-emerald-200 bg-emerald-100 text-emerald-800" : pagamento?.texto === "A CONFERIR" ? "border-yellow-300 bg-yellow-50 text-yellow-900" : "border-orange-200 bg-orange-100 text-orange-800"}`}>
+                    {pagamento?.texto === "PAGO" ? "✓ " : pagamento?.texto === "A CONFERIR" ? "⚠ " : "○ "}{rotuloPagamento}
+                  </span>
+                )}
               </div>
 
-              <p className="mt-1 break-words text-sm text-gray-500">
-                {pet?.raca?.trim() ? `Raça: ${pet.raca.trim()}` : "Raça não informada"}
-              </p>
-
+              <p className="mt-1 text-sm text-gray-500">{pet?.raca?.trim() ? `Raça: ${pet.raca.trim()}` : "Raça não informada"}</p>
               {identificacao && (
                 <p className="mt-1 text-sm font-semibold text-emerald-700">
                   🛁 {identificacao}
                 </p>
               )}
 
-              <p className="mt-1 text-sm text-gray-600">
-                {obterNomeServico(agendamento)} •{" "}
-                {formatarValor(agendamento.valor_total)}
-              </p>
+              <p className="mt-1 text-sm text-gray-600">🛁 {obterNomeServico(agendamento)}</p>
+              {ehAdmin && <p className="mt-1 text-sm text-slate-600">{ehPlano(agendamento) ? "Valor do ciclo" : "Valor do atendimento"}: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(pagamento.valor)}</strong></p>}
+              {pagamento && <p className="mt-1 text-sm text-slate-600">Recebido: {formatarValor(pagamento.recebido)} • Crédito: {formatarValor(pagamento.credito)} • Saldo: {valorComprovante(pagamento.saldo)}</p>}
+              {ehAdmin && extrasDoBanho.length > 0 && (
+                <div className="mt-1 space-y-1 text-sm text-slate-600">
+                  {extrasDoBanho.map(extra => (
+                    <p key={extra.id}>
+                      + {extra.nome_servico}: <strong>{formatarValor(Number(extra.valor))}</strong>
+                      <span className="text-xs text-slate-500"> · {extra.pagamento_status}</span>
+                    </p>
+                  ))}
+                  <p className="font-semibold text-slate-700">
+                    Total geral: <strong>{pagamento?.valor == null ? "A conferir" : formatarValor(Number(pagamento.valor) + totalExtrasBanho)}</strong>
+                  </p>
+                </div>
+              )}
+              {agendamento.observacoes?.trim() && (
+                <p className="mt-2 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700">📝 {agendamento.observacoes.trim()}</p>
+              )}
 
             </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={!agendamento.whatsapp || cancelado || !concluido}
+              onClick={() => abrirWhatsApp("pronto", agendamento.whatsapp || "", agendamento.petNome || "Pet", agendamento.tutorNome || "Tutor", formatarHorario(agendamento.horario), pet?.sexo || null, obterNomeServico(agendamento), agendamento.data)}
+              className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">🐶 Pet pronto</button>
             {ehAdmin && pagamento && <button
               type="button"
               disabled={cancelado}
@@ -1556,7 +1919,7 @@ export default function AgendaPage() {
                   agendamento,
                   obterNomeServico(agendamento),
                   pagamento,
-                  extrasComprovantes.filter(extra => extra.agendamento_id === agendamento.id)
+                  extrasDoBanho
                 )
               }
               className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50"
@@ -1566,33 +1929,12 @@ export default function AgendaPage() {
 
             <button
               type="button"
-              onClick={() =>
-                abrirWhatsApp(
-                  "pronto",
-                  agendamento.whatsapp || "",
-                  agendamento.petNome || "Pet",
-                  agendamento.tutorNome || "Tutor",
-                  formatarHorario(agendamento.horario),
-                  pet?.sexo || null,
-                  obterNomeServico(agendamento),
-                  agendamento.data
-                )
-              }
-              disabled={!agendamento.whatsapp || cancelado || !concluido}
-              className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              🐶 Pet pronto
-            </button>
-
-            <button
-              type="button"
               onClick={() => abrirEdicao(agendamento)}
               disabled={cancelado || (concluido && !ehAdmin)}
               className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Editar / Reagendar
             </button>
-
             {!concluido && !cancelado && (
               <button
                 type="button"
@@ -1654,7 +1996,11 @@ export default function AgendaPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {ehAdmin && grupo.agendamentos.some(podeRenovarCiclo) && (
+            <button type="button" disabled={!grupo.whatsapp || !grupo.agendamentos.some(a => !estaCancelado(a)) || !grupo.agendamentos.filter(a => !estaCancelado(a)).every(estaConcluido)}
+              onClick={() => avisarPetsProntos(grupo.whatsapp, grupo.tutorNome, grupo.agendamentos.filter(a => !estaCancelado(a)).map(a => ({ nome: a.petNome || "Pet", sexo: pets.find(p => p.id === a.pet_id)?.sexo || null })))}
+              className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">🐾 Avisar pets prontos</button>
+
+            {perfilUsuario && grupo.agendamentos.some(podeRenovarCiclo) && (
               <button type="button" disabled={salvandoRenovacao}
                 onClick={() => abrirRenovacaoGrupo(grupo)}
                 className="rounded-xl border border-emerald-600 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-50">
@@ -1663,19 +2009,16 @@ export default function AgendaPage() {
             )}
             {grupo.agendamentos.some(a => ehPlano(a) && Number(a.numero_banho) === 1 && !estaCancelado(a)) && (
               <button type="button" disabled={!grupo.whatsapp}
-                onClick={() => {
-                  const itens = grupo.agendamentos.filter(a => ehPlano(a) && Number(a.numero_banho) === 1 && !estaCancelado(a));
-                  const linhas = itens.map(a => {
-                    const ciclo = agendamentos.filter(b => b.pet_id === a.pet_id && b.ciclo === a.ciclo && !estaCancelado(b))
-                      .sort((x,y) => Number(x.numero_banho) - Number(y.numero_banho));
-                    return `${a.petNome || "Pet"} — Plano ${a.plano}\n${ciclo.map(b => `${b.numero_banho}º banho: ${formatarDataLocal(b.data)} às ${formatarHorario(b.horario)}`).join("\n")}`;
-                  });
-                  abrirMensagemWhatsApp(grupo.whatsapp, `Olá, ${grupo.tutorNome}! Passando para lembrar do pacote de banhos no SPA PET AGROMINAS.\n\n${linhas.join("\n\n")}`);
-                }}
+                onClick={() => avisarRenovacaoWhatsApp(grupo)}
                 className="rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-sky-800 disabled:opacity-40">
                 📲 Enviar renovação
               </button>
             )}
+            {!ehAdmin && grupo.agendamentos.filter(a => !estaCancelado(a)).length > 1 && <button type="button"
+              onClick={() => documentoComprovante(
+                '<div class="nome-pet">' + escaparHTMLComprovante(grupo.tutorNome) + '</div><div>' + escaparHTMLComprovante(formatarDataLocal(grupo.data) + ' • ' + grupo.horario) + '</div>' +
+                grupo.agendamentos.filter(a => !estaCancelado(a)).map(a => '<div class="pet"><strong>' + escaparHTMLComprovante(a.petNome || "Pet") + '</strong><div>' + escaparHTMLComprovante(obterNomeServico(a)) + '</div><div>' + escaparHTMLComprovante(obterIdentificacaoBanho(a)) + '</div></div>').join(''), "COMPROVANTE CONJUNTO")}
+              className="rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white">🖨️ Imprimir todos</button>}
             {ehAdmin && grupo.agendamentos.filter(a => !estaCancelado(a)).length > 1 && (
               <button
                 type="button"
@@ -1690,7 +2033,7 @@ export default function AgendaPage() {
                       petNome: agendamento.petNome || "Pet",
                       servicoNome: obterNomeServico(agendamento),
                       identificacao: obterIdentificacaoBanho(agendamento),
-                      valor: pagamento.valor ?? agendamento.valor_total,
+                      valor: pagamento.valor,
                       recebido: pagamento.recebido,
                       credito: pagamento.credito,
                       saldo: pagamento.saldo,
@@ -1744,6 +2087,19 @@ export default function AgendaPage() {
     year: "numeric",
   });
 
+  const ativosDia = agendamentos.filter(a => a.data === dataSelecionada && !estaCancelado(a));
+  const indicadores = [
+    { titulo: "Pets do dia", valor: ativosDia.length },
+    { titulo: "Compareceram", valor: ativosDia.filter(estaConcluido).length },
+    { titulo: "Ainda não vieram", valor: ativosDia.filter(a => !estaConcluido(a)).length },
+    { titulo: "Em planos", valor: ativosDia.filter(a => a.plano === "Mensal" || a.plano === "Quinzenal").length },
+    ...(ehAdmin ? [
+      { titulo: "Pagos", valor: ativosDia.filter(a => obterPagamentoDoCiclo(a).estado === "pago").length },
+      { titulo: "Pendentes / parciais", valor: ativosDia.filter(a => ["pendente", "parcial"].includes(obterPagamentoDoCiclo(a).estado)).length },
+      { titulo: "A conferir", valor: ativosDia.filter(a => obterPagamentoDoCiclo(a).estado === "conferir").length },
+    ] : []),
+  ];
+
   return (
     <main className="min-h-screen bg-[#f3f8f5]">
       <div className="flex min-h-screen">
@@ -1762,6 +2118,8 @@ export default function AgendaPage() {
               </p>
             </div>
 
+            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+            <button type="button" disabled={carregando || Boolean(erroCarregamento) || !perfilUsuario} onClick={() => void compartilharAgendaImagem()} className="rounded-xl border border-emerald-300 bg-white px-5 py-3 font-semibold text-emerald-800 disabled:opacity-50">📷 Compartilhar Agenda como imagem</button>
             <button
               type="button"
               disabled={carregando || Boolean(erroCarregamento) || !perfilUsuario}
@@ -1770,8 +2128,12 @@ export default function AgendaPage() {
             >
               + Novo agendamento
             </button>
+            </div>
           </div>
 
+          <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {indicadores.map(item => <div key={item.titulo} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"><p className="text-sm text-slate-600">{item.titulo}</p><p className="mt-1 text-2xl font-bold text-emerald-950">{carregando || erroCarregamento ? "—" : item.valor}</p></div>)}
+          </div>
           <div className="grid gap-6 lg:grid-cols-[330px_minmax(0,1fr)]">
             <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm md:p-6">
               <div className="mb-5 flex items-center justify-between">
@@ -1845,7 +2207,7 @@ export default function AgendaPage() {
                         <span
                           className={
                             "absolute bottom-1 h-1 w-1 rounded-full " +
-                            (selecionado ? "bg-white" : "bg-emerald-600")
+                            (selecionado ? "bg-emerald-300" : "bg-emerald-600")
                           }
                         />
                       )}
@@ -1999,14 +2361,15 @@ export default function AgendaPage() {
               </label>
               <label className="text-sm font-semibold">Turno
                 <select value={horarioRenovacao} onChange={e => setHorarioRenovacao(e.target.value)} className="mt-1 w-full rounded-xl border p-2">
-                  <option value="08:30">Manhã — 08:30</option><option value="13:30">Tarde — 13:30</option>
+                  <option value="08:00">Manhã — 08:00</option><option value="13:30">Tarde — 13:30</option>
                 </select>
               </label>
             </div>
             <div className="mt-4 rounded-xl bg-emerald-50 p-4">
               {(renovacoesGrupo.length ? renovacoesGrupo : [renovacao]).map(pet => (
                 <div key={pet.pet_id} className="mb-3 border-b border-emerald-200 pb-2 last:border-0">
-                  <p className="font-semibold">{pet.petNome || "Pet"} — {pet.plano}</p>
+                  <p className="font-semibold">{pet.petNome || "Pet"} — {pet.plano} • Ciclo {Number(pet.ciclo) + 1}</p>
+                  {ehAdmin && <p className="text-sm">Valor do novo ciclo: {valorComprovante(agendamentos.find(a => a.pet_id === pet.pet_id && a.ciclo === pet.ciclo && a.numero_banho === 1)?.valor_total ?? pet.valor_total)}</p>}
                   {dataValida(dataInicioRenovacao) && Array.from({ length: pet.plano === "Quinzenal" ? 2 : 4 }, (_, i) =>
                     adicionarDias(dataInicioRenovacao, i * (pet.plano === "Quinzenal" ? 14 : 7))).map((data, i) => (
                     <p key={data} className="text-sm">{i + 1}º banho: {formatarDataLocal(data)} às {horarioRenovacao}</p>
@@ -2039,7 +2402,7 @@ export default function AgendaPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  Preencha os dados do atendimento.
+                  {agendamentoSelecionado && estaConcluido(agendamentoSelecionado) ? "Banho concluído: somente o valor pode ser corrigido. Os pagamentos registrados serão preservados." : "Preencha os dados do atendimento."}
                 </p>
               </div>
 
@@ -2062,6 +2425,7 @@ export default function AgendaPage() {
                 <input
                   type="text"
                   value={buscaPet}
+                  disabled={Boolean(agendamentoSelecionado && estaConcluido(agendamentoSelecionado))}
                   onChange={(e) => {
                     setBuscaPet(e.target.value);
                     setPetSelecionado("");
@@ -2184,6 +2548,7 @@ export default function AgendaPage() {
                 </label>
 
                 <select
+                  disabled={Boolean(agendamentoSelecionado && estaConcluido(agendamentoSelecionado))}
                   value={servicoSelecionado}
                   onChange={(e) => {
                     const id = e.target.value;
@@ -2217,7 +2582,7 @@ export default function AgendaPage() {
 
               {ehAdmin && <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
-                  Valor
+                  {agendamentoSelecionado ? "Valor — use o botão Corrigir valor para aplicar" : frequenciaAgendamento === "Avulso" ? "Valor do atendimento" : "Valor total do ciclo"}
                 </label>
 
                 <input
@@ -2321,6 +2686,7 @@ export default function AgendaPage() {
               </div>
             )}
 
+            {ehAdmin && agendamentoSelecionado && <button type="button" disabled={salvandoValor || salvando} onClick={async () => { if (await salvarCorrecaoValor(agendamentoSelecionado, valorAgendamento)) { setModalAgendamento(false); setAgendamentoSelecionado(null); await carregarDados(); } }} className="mt-5 rounded-xl border border-emerald-600 px-4 py-3 font-semibold text-emerald-800 disabled:opacity-50">{salvandoValor ? "Salvando valor..." : "Corrigir valor do atendimento / ciclo"}</button>}
             {ehAdmin && agendamentoSelecionado && estaConcluido(agendamentoSelecionado) && (
               <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <p className="mb-3 text-sm text-amber-900">
@@ -2349,7 +2715,7 @@ export default function AgendaPage() {
               {!(agendamentoSelecionado && estaConcluido(agendamentoSelecionado)) && <button
                 type="button"
                 onClick={() => void salvarAgendamento()}
-                disabled={salvando}
+                disabled={salvando || salvandoValor}
                 className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
               >
                   {salvando ? "Salvando..." : agendamentoSelecionado && modoReagendamento === "ciclo" ? "Confirmar ciclo completo" : "Salvar agendamento"}
