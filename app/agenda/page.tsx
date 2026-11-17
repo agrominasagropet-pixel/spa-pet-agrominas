@@ -1692,9 +1692,11 @@ export default function AgendaPage() {
     ];
 
     for (const ag of lista) {
+      const raca = pets.find((pet) => pet.id === ag.pet_id)?.raca?.trim();
+      const nomePetComRaca = `${ag.petNome || "Pet"} (${raca || "Raça não informada"})`;
       const plano = ag.plano === "Mensal" || ag.plano === "Quinzenal" ? ag.plano : "Avulso";
       const banho = ag.numero_banho ? `${ag.numero_banho}º${ag.ciclo && ag.ciclo > 1 ? ` / C${ag.ciclo}` : ""}` : "1º";
-      const textosBase = ["", ag.tutorNome || "Tutor não informado", ag.petNome || "Pet",
+      const textosBase = ["", ag.tutorNome || "Tutor não informado", nomePetComRaca,
         `${plano} • ${banho}`, obterNomeServico(ag), ag.observacoes?.trim() || "—"];
       const textos = textosBase.map((texto, i) => {
         ctxMedida.font = `${i === 1 || i === 2 ? "bold " : ""}22px Arial, sans-serif`;
