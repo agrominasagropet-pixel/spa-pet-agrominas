@@ -325,6 +325,9 @@ export default function MenuLateral() {
 
           <aside
             id="menu-agrominas-mobile"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu principal"
             className="absolute inset-y-0 left-0 flex w-[min(85vw,290px)] flex-col bg-[#f7faf8] shadow-2xl"
           >
             <button

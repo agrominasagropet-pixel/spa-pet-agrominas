@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { paginar } from "@/lib/paginacao";
 import MenuLateral from "@/app/components/MenuLateral";
 
 type Pet = {
@@ -189,96 +190,49 @@ export default function Home() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [erroCarregamento, setErroCarregamento] = useState("");
+  const [tentativaCarregamento, setTentativaCarregamento] = useState(0);
   const [pesquisaRenovacao, setPesquisaRenovacao] = useState("");
 
   useEffect(() => {
+    let ativo = true;
     async function carregarDados() {
       setCarregando(true);
+      setErroCarregamento("");
 
       try {
-        const [
-          respostaPets,
-          respostaClientes,
-          respostaAgendamentos,
-          respostaAtendimentos,
-        ] = await Promise.all([
-          supabase
-            .from("pets")
-            .select("id, nome, cliente_id")
-            .order("nome", { ascending: true }),
-
-          supabase
-            .from("clientes")
-            .select("id, nome, whatsapp, telefone")
-            .order("nome", { ascending: true }),
-
-          supabase
-            .from("agendamentos")
-            .select(
-              "id, pet_id, data, horario, status, servico_nome, valor_total"
-            )
-            .order("data", { ascending: true })
-            .order("horario", { ascending: true }),
-
-          supabase
-            .from("atendimentos")
-            .select(
-              "id, agendamento_id, pet_id, data, valor, forma_pagamento"
-            )
-            .order("data", { ascending: false }),
+        const [respostaPets, respostaClientes, respostaAgendamentos, respostaAtendimentos] = await Promise.all([
+          paginar<Pet>((inicio, fim) => supabase.from("pets").select("id,nome,cliente_id").order("nome").order("id").range(inicio, fim), "Pets"),
+          paginar<Cliente>((inicio, fim) => supabase.from("clientes").select("id,nome,whatsapp,telefone").order("nome").order("id").range(inicio, fim), "Clientes"),
+          paginar<Agendamento>((inicio, fim) => supabase.from("agendamentos").select("id,pet_id,data,horario,status,servico_nome,valor_total").order("data").order("horario").order("id").range(inicio, fim), "Agendamentos"),
+          paginar<Atendimento>((inicio, fim) => supabase.from("atendimentos").select("id,agendamento_id,pet_id,data,valor,forma_pagamento").order("data", { ascending: false }).order("id", { ascending: false }).range(inicio, fim), "Atendimentos"),
         ]);
-
-        if (respostaPets.error) {
-          console.error("Erro ao carregar pets:", respostaPets.error);
-        }
-
-        if (respostaClientes.error) {
-          console.error("Erro ao carregar clientes:", respostaClientes.error);
-        }
-
-        if (respostaAgendamentos.error) {
-          console.error(
-            "Erro ao carregar agendamentos:",
-            respostaAgendamentos.error
-          );
-        }
-
-        if (respostaAtendimentos.error) {
-          console.error(
-            "Erro ao carregar atendimentos:",
-            respostaAtendimentos.error
-          );
-        }
-
-        if (respostaPets.data) {
-          setPets(respostaPets.data as Pet[]);
-        }
-
-        if (respostaClientes.data) {
-          setClientes(respostaClientes.data as Cliente[]);
-        }
-
-        if (respostaAgendamentos.data) {
-          setAgendamentos(respostaAgendamentos.data as Agendamento[]);
-        }
-
-        if (respostaAtendimentos.data) {
-          setAtendimentos(respostaAtendimentos.data as Atendimento[]);
-        }
+        if (!ativo) return;
+        setPets(respostaPets.data);
+        setClientes(respostaClientes.data);
+        setAgendamentos(respostaAgendamentos.data);
+        setAtendimentos(respostaAtendimentos.data);
       } catch (erro) {
         console.error("Erro inesperado ao carregar o painel:", erro);
+        if (!ativo) return;
+        setPets([]);
+        setClientes([]);
+        setAgendamentos([]);
+        setAtendimentos([]);
+        setErroCarregamento(erro instanceof Error ? erro.message : "Não foi possível carregar o painel completo.");
       } finally {
-        setCarregando(false);
+        if (ativo) setCarregando(false);
       }
     }
 
     void carregarDados();
-  }, []);
+    return () => { ativo = false; };
+  }, [tentativaCarregamento]);
 
   const hoje = obterDataLocal();
 
   const agendamentosAtivos = agendamentos.filter(function (agendamento) {
-    return normalizarTexto(agendamento.status || "") !== "cancelado";
+    return !["cancelado", "cancelada"].includes(normalizarTexto(agendamento.status || ""));
   });
 
   const agendamentosHoje = agendamentosAtivos.filter(function (agendamento) {
@@ -525,7 +479,7 @@ export default function Home() {
       <div className="flex min-h-screen">
         <MenuLateral />
 
-        <section className="flex-1 p-8">
+        <section className="min-w-0 flex-1 p-4 sm:p-8">
           <div className="mb-8">
             <p className="text-sm font-medium text-gray-500">
               {new Date().toLocaleDateString("pt-BR", {
@@ -543,6 +497,15 @@ export default function Home() {
               Aqui está o resumo da operação de hoje no SPA PET AGROMINAS.
             </p>
           </div>
+
+          {erroCarregamento && (
+            <div role="alert" className="mb-6 flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 sm:flex-row sm:items-center sm:justify-between">
+              <p>Não foi possível carregar todos os dados do painel: {erroCarregamento}</p>
+              <button type="button" onClick={() => setTentativaCarregamento(atual => atual + 1)} className="w-fit rounded-lg border border-rose-300 bg-white px-4 py-2 font-semibold text-rose-800 hover:bg-rose-100">
+                Tentar novamente
+              </button>
+            </div>
+          )}
 
           {/* Cartões de resumo */}
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">

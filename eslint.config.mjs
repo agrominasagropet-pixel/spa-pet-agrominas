@@ -11,8 +11,17 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    ".open-next/**",
+    // Historical snapshots are reference-only and are not shipped.
+    "**/agenda-versao-*.tsx",
+    "backup-conversao-planos/**",
     "next-env.d.ts",
   ]),
+  {
+    files: ["**/*.cjs"],
+    languageOptions: { sourceType: "commonjs" },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 ]);
 
 export default eslintConfig;

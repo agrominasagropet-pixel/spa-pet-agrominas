@@ -32,7 +32,8 @@ function formas(registros: readonly { forma_pagamento?: string | null }[]) {
 
 export function extraRecebimentoConfirmado(extra: Pick<ExtraFinanceiro, "pagamento_status" | "forma_pagamento" | "data_pagamento">) {
   const data = extra.data_pagamento?.trim() || "";
-  const dataValida = /^\d{4}-\d{2}-\d{2}$/.test(data) && !Number.isNaN(Date.parse(data));
+  const timestamp = /^\d{4}-\d{2}-\d{2}$/.test(data) ? Date.parse(`${data}T00:00:00.000Z`) : Number.NaN;
+  const dataValida = Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === data;
   return (extra.pagamento_status || "").trim().toLowerCase() === "pago"
     && Boolean(extra.forma_pagamento?.trim()) && dataValida;
 }

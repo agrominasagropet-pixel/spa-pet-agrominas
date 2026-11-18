@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { paginar } from "@/lib/paginacao";
+import { resumirCiclo, type AtendimentoFinanceiro, type ExtraFinanceiro, type RecebimentoPlano, type ConversaoFinanceira, type ParcelaConversao } from "@/lib/financeiro";
 import MenuLateral from "@/app/components/MenuLateral";
 
 type Frequencia = "Avulso" | "Quinzenal" | "Mensal";
 type Turno = "Manhã" | "Tarde";
-type PagamentoPlano = "Pago" | "Pendente";
+type PagamentoPlano = "Pago" | "Pendente" | "Parcial" | "Cancelado" | "A conferir";
 
 type ServicosPet = {
   banhoTosa: string;
@@ -85,7 +87,10 @@ type AgendamentoBanco = {
   ciclo: number | null;
   pagamento_status: string | null;
   forma_pagamento_plano: string | null;
+  valor_total: number | null;
 };
+type ExtraFinanceiroCadastro = ExtraFinanceiro & { id: string; agendamento_id: string };
+type AtendimentoFinanceiroCadastro = AtendimentoFinanceiro & { agendamento_id: string | null };
 
 // Padroniza nomes antigos sem modificar registros históricos no banco.
 function padronizarServico(nome: string): string {
@@ -531,7 +536,12 @@ function DatasBanhosCiclo({ pet }: { pet: Pet }) {
 
 function criarResumoPlano(
   pet: Pet,
-  agendamentos: AgendamentoBanco[]
+  agendamentos: AgendamentoBanco[],
+  pagamentos: RecebimentoPlano[] = [],
+  conversoes: ConversaoFinanceira[] = [],
+  parcelas: ParcelaConversao[] = [],
+  extras: ExtraFinanceiroCadastro[] = [],
+  atendimentos: AtendimentoFinanceiroCadastro[] = [],
 ): PlanoResumo | null {
   // O histórico avulso não integra o novo plano mensal/quinzenal.
   const doPet = agendamentos.filter(
@@ -613,19 +623,9 @@ function criarResumoPlano(
     0
   );
 
-  /*
-   * O ciclo somente é considerado PAGO
-   * quando todos os agendamentos daquele
-   * ciclo estão pagos.
-   */
-  const pago =
-    itensCiclo.length >= totalBanhos &&
-    itensCiclo.every(
-      (item) =>
-        String(
-          item.pagamento_status || ""
-        ).toLowerCase() === "pago"
-    );
+  const idsAgendamentosCiclo = new Set(itensCiclo.map(item => item.id));
+  const extrasCiclo = extras.filter(extra => idsAgendamentosCiclo.has(extra.agendamento_id));
+  const financeiro = resumirCiclo(itensCiclo, pagamentos, conversoes, parcelas, extrasCiclo, atendimentos);
 
   const primeiro =
     itensCiclo[0]?.data ||
@@ -648,21 +648,14 @@ function criarResumoPlano(
   const cicloVencido =
     !!ultimo && ultimo < hoje;
 
-  const formaPagamento =
-    itensCiclo.find(
-      (item) =>
-        item.forma_pagamento_plano
-    )?.forma_pagamento_plano ||
-    "";
+  const formaPagamento = financeiro.forma || "";
 
   return {
     ciclo: cicloAtual,
     totalBanhos,
     banhosConcluidos,
     banhosRestantes,
-    pagamento: pago
-      ? "Pago"
-      : "Pendente",
+    pagamento: financeiro.estado === "pago" ? "Pago" : financeiro.estado === "parcial" ? "Parcial" : financeiro.estado === "cancelado" ? "Cancelado" : financeiro.estado === "conferir" ? "A conferir" : "Pendente",
     formaPagamento,
     dataInicio: primeiro,
     dataFim: ultimo,
@@ -674,11 +667,9 @@ function criarResumoPlano(
   };
 }
 
-type ConversaoPlano = { id: string; pet_id: string; agendamento_avulso_id: string; atendimento_original_id: string; ciclo: number; plano_destino: string; valor_plano: number; credito_avulso: number };
-type ParcelaPlano = { id: string; conversao_id: string; valor: number; forma_pagamento: string; data_pagamento: string };
-
 export default function ClientesPetsPage() {
   const [avulsosConvertiveis, setAvulsosConvertiveis] = useState<Record<string, {id:string;data:string;valor:number;pago:boolean}[]>>({});
+  const [erroAvulsosConvertiveis, setErroAvulsosConvertiveis] = useState("");
   const [modoInicioPlano, setModoInicioPlano] = useState<Record<string, "novo" | "aproveitar">>({});
   const [convertendo, setConvertendo] = useState(false);
   const [conversaoAberta, setConversaoAberta] = useState<string | null>(null);
@@ -746,17 +737,19 @@ export default function ClientesPetsPage() {
   useEffect(() => {
     let ativo = true;
     async function consultar() {
+      setErroAvulsosConvertiveis("");
       const [ags, ats, cvs] = await Promise.all([
-        supabase.from("agendamentos").select("id,pet_id,data,plano,status"),
-        supabase.from("atendimentos").select("agendamento_id,valor,data_pagamento"),
-        supabase.from("conversoes_avulso_plano").select("agendamento_avulso_id")
+        paginar((inicio, fim) => supabase.from("agendamentos").select("id,pet_id,data,plano,status").order("id").range(inicio, fim), "Avulsos"),
+        paginar((inicio, fim) => supabase.from("atendimentos").select("id,agendamento_id,valor,data_pagamento,forma_pagamento").order("id").range(inicio, fim), "Recebimentos avulsos"),
+        paginar((inicio, fim) => supabase.from("conversoes_avulso_plano").select("id,agendamento_avulso_id").order("id").range(inicio, fim), "Conversões")
       ]);
-      if (ags.error || ats.error || cvs.error || !ativo) return;
+      if (ags.error || ats.error || cvs.error) throw ags.error || ats.error || cvs.error;
+      if (!ativo) return;
       const convertidos = new Set((cvs.data || []).map(c => c.agendamento_avulso_id));
       // Soma todos os recebimentos efetivamente confirmados por agendamento.
       const pagos = new Map<string, number>();
       for (const at of ats.data || []) {
-        if (!at.agendamento_id || !at.data_pagamento || Number(at.valor) <= 0) continue;
+        if (!at.agendamento_id || !at.forma_pagamento || Number(at.valor) <= 0) continue;
         pagos.set(at.agendamento_id, (pagos.get(at.agendamento_id) || 0) + Number(at.valor));
       }
       const mapa: Record<string,{id:string;data:string;valor:number;pago:boolean}[]> = {};
@@ -770,7 +763,13 @@ export default function ClientesPetsPage() {
       for (const itens of Object.values(mapa)) itens.sort((a,b) => b.data.localeCompare(a.data));
       if(ativo) setAvulsosConvertiveis(mapa);
     }
-    void consultar(); return () => {ativo=false};
+    void consultar().catch(error => {
+      if (ativo) {
+        setAvulsosConvertiveis({});
+        setErroAvulsosConvertiveis(error instanceof Error ? error.message : "Não foi possível carregar os atendimentos avulsos.");
+        console.error("Falha ao conferir avulsos para conversão:", error);
+      }
+    }); return () => {ativo=false};
   }, [clienteSelecionado]);
 
   const [carregando, setCarregando] =
@@ -810,13 +809,13 @@ export default function ClientesPetsPage() {
       setConsultandoCpf(true);
       try {
         // Busca no banco, inclusive registros antigos com CPF pontuado.
-        const { data, error } = await supabase
+        const encontrados = await paginar((inicio, fim) => supabase
           .from("clientes")
-          .select("id,nome,cpf");
-        if (error) throw error;
+          .select("id,nome,cpf")
+          .order("id")
+          .range(inicio, fim), "Busca de CPF");
         if (cancelado) return;
-
-        const encontrado = (data || []).find((item) =>
+        const encontrado = encontrados.data.find((item) =>
           String(item.cpf || "").replace(/\D/g, "") === cpfNumeros &&
           String(item.id) !== String(clienteEditandoId || "")
         );
@@ -924,12 +923,12 @@ export default function ClientesPetsPage() {
       const {
         data: clientesBanco,
         error: erroClientes,
-      } = await supabase
+      } = await paginar((inicio, fim) => supabase
         .from("clientes")
         .select("*")
         .order("nome", {
           ascending: true,
-        });
+        }).order("id").range(inicio, fim), "Clientes");
 
       if (erroClientes) {
         console.error(
@@ -948,12 +947,12 @@ export default function ClientesPetsPage() {
       const {
         data: petsData,
         error: erroPets,
-      } = await supabase
+      } = await paginar((inicio, fim) => supabase
         .from("pets")
         .select("*")
         .order("nome", {
           ascending: true,
-        });
+        }).order("id").range(inicio, fim), "Pets");
 
       if (erroPets) {
         console.error(
@@ -961,10 +960,7 @@ export default function ClientesPetsPage() {
           erroPets
         );
 
-        /*
-         * Não interrompe o carregamento dos clientes.
-         */
-        petsBanco = [];
+        throw erroPets;
       } else {
         petsBanco = petsData || [];
       }
@@ -983,25 +979,30 @@ export default function ClientesPetsPage() {
         const {
           data: agendamentosData,
           error: erroAgendamentos,
-        } = await supabase
+        } = await paginar((inicio, fim) => supabase
           .from("agendamentos")
           .select("*")
           .in("pet_id", idsPets)
           .order("data", {
             ascending: true,
-          });
+          }).order("id").range(inicio, fim), "Agendamentos");
 
         if (erroAgendamentos) {
-          console.error(
-            "ERRO AO CARREGAR AGENDAMENTOS:",
-            erroAgendamentos
-          );
+          throw erroAgendamentos;
         } else {
           agendamentos =
             (agendamentosData ||
               []) as AgendamentoBanco[];
         }
       }
+
+      const [pagamentosR, conversoesR, parcelasR, atendimentosR, extrasR] = await Promise.all([
+        paginar((inicio, fim) => supabase.from("pagamentos_planos").select("pet_id,ciclo,valor,forma_pagamento,id").order("id").range(inicio, fim), "Pagamentos"),
+        paginar((inicio, fim) => supabase.from("conversoes_avulso_plano").select("id,pet_id,ciclo,valor_plano,credito_avulso,atendimento_original_id").order("id").range(inicio, fim), "Conversões"),
+        paginar((inicio, fim) => supabase.from("recebimentos_parciais_planos").select("id,conversao_id,valor,forma_pagamento").order("id").range(inicio, fim), "Parcelas"),
+        paginar<AtendimentoFinanceiroCadastro>((inicio, fim) => supabase.from("atendimentos").select("id,agendamento_id,valor,forma_pagamento").order("id").range(inicio, fim), "Atendimentos financeiros"),
+        paginar<ExtraFinanceiroCadastro>((inicio, fim) => supabase.from("servicos_extras_agendamento").select("id,agendamento_id,valor,pagamento_status,forma_pagamento,data_pagamento").order("id").range(inicio, fim), "Serviços extras"),
+      ]);
 
       /*
        * CONVERTE OS PETS
@@ -1047,7 +1048,12 @@ export default function ClientesPetsPage() {
                   const plano =
                     criarResumoPlano(
                       pet,
-                      agendamentos
+                      agendamentos,
+                      pagamentosR.data,
+                      conversoesR.data,
+                      parcelasR.data,
+                      extrasR.data,
+                      atendimentosR.data,
                     );
 
                   const historicoBanhos: BanhoHistorico[] = agendamentos
@@ -1142,11 +1148,6 @@ export default function ClientesPetsPage() {
             };
           }
         );
-
-      console.log(
-        "CLIENTES CARREGADOS:",
-        clientesFormatados
-      );
 
       setClientes(
         clientesFormatados
@@ -2219,6 +2220,11 @@ export default function ClientesPetsPage() {
       if (
         idsPets.length
       ) {
+        for (const tabela of ["agendamentos", "atendimentos", "pagamentos_planos", "conversoes_avulso_plano", "servicos_extras_agendamento"]) {
+          const { data, error } = await supabase.from(tabela).select("id").in("pet_id", idsPets).limit(1);
+          if (error) throw error;
+          if (data?.length) throw new Error("Há histórico de agendamentos, atendimentos ou vínculos financeiros neste cadastro. A exclusão foi bloqueada para preservar o histórico; arquivamento exige operação própria.");
+        }
         const {
           error:
             erroAgendamentos,
@@ -2953,14 +2959,14 @@ export default function ClientesPetsPage() {
 
       {modalCadastro && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm">
-          <div className="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="titulo-cadastro-cliente" className="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
               <div>
                 <p className="text-sm font-semibold text-emerald-600">
                   SPA PET AGROMINAS
                 </p>
 
-                <h2 className="text-xl font-bold text-slate-900">
+                <h2 id="titulo-cadastro-cliente" className="text-xl font-bold text-slate-900">
                   {modoEdicao
                     ? "Editar cliente e pets"
                     : "Novo cliente e pets"}
@@ -3588,6 +3594,11 @@ export default function ClientesPetsPage() {
                           )}
                         </div>
 
+                        {erroAvulsosConvertiveis && modoEdicao && !pet.id.startsWith("novo-") && pet.servicos.frequencia !== "Avulso" && (
+                          <p role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                            Não foi possível consultar os avulsos para conversão. Atualize os dados antes de alterar o plano.
+                          </p>
+                        )}
                         {modoEdicao && !pet.id.startsWith("novo-") && pet.servicos.frequencia !== "Avulso" && (avulsosConvertiveis[pet.id] || []).length > 0 && (
                           <div className="mt-5 rounded-xl border border-emerald-200 bg-white p-4">
                             <p className="text-sm font-bold text-slate-900">Como deseja iniciar o plano?</p>
@@ -3806,14 +3817,14 @@ export default function ClientesPetsPage() {
 
       {clienteSelecionado && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm">
-          <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="titulo-detalhes-cliente" className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
               <div>
                 <p className="text-sm font-semibold text-emerald-600">
                   CLIENTE
                 </p>
 
-                <h2 className="text-xl font-bold text-slate-900">
+                <h2 id="titulo-detalhes-cliente" className="text-xl font-bold text-slate-900">
                   {
                     clienteSelecionado.nome
                   }
@@ -4309,13 +4320,13 @@ export default function ClientesPetsPage() {
 
       {modalPlanoPet && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="titulo-renovar-plano" className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
             <div className="border-b border-slate-200 px-6 py-5">
               <p className="text-sm font-semibold text-emerald-600">
                 SPA PET AGROMINAS
               </p>
 
-              <h2 className="mt-1 text-xl font-bold text-slate-900">
+              <h2 id="titulo-renovar-plano" className="mt-1 text-xl font-bold text-slate-900">
                 Renovar plano
               </h2>
 

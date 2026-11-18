@@ -2380,8 +2380,8 @@ export default function AgendaPage() {
 
       {renovacao && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
-            <h3 className="text-xl font-bold text-emerald-950">🔄 Renovar ciclo</h3>
+          <div role="dialog" aria-modal="true" aria-labelledby="titulo-renovacao-agenda" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+            <h3 id="titulo-renovacao-agenda" className="text-xl font-bold text-emerald-950">🔄 Renovar ciclo</h3>
             <p className="mt-2 text-sm text-gray-600">Confira as datas antes de confirmar. O histórico será mantido.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="text-sm font-semibold">Data do primeiro banho
@@ -2421,10 +2421,10 @@ export default function AgendaPage() {
 
       {modalAgendamento && perfilUsuario && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-emerald-100 bg-white p-6 shadow-xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="titulo-form-agendamento" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-emerald-100 bg-white p-6 shadow-xl">
             <div className="mb-6 flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">
+                <h3 id="titulo-form-agendamento" className="text-xl font-bold text-gray-900">
                   {agendamentoSelecionado
                     ? "Editar agendamento"
                     : "Novo agendamento"}

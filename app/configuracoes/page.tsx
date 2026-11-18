@@ -420,7 +420,7 @@ export default function ConfiguracoesPage() {
       <div className="min-h-screen bg-slate-50">
         <MenuLateral />
 
-        <main className="min-h-screen bg-slate-50">
+        <main className="min-h-screen min-w-0 flex-1 bg-slate-50">
           <div className="flex min-h-screen items-center justify-center">
             <div className="text-center">
               <div className="text-5xl">🐾</div>
@@ -439,7 +439,7 @@ export default function ConfiguracoesPage() {
     <div className="flex min-h-screen bg-slate-50">
       <MenuLateral />
 
-     <main className="min-h-screen bg-slate-50">
+    <main className="min-h-screen min-w-0 flex-1 bg-slate-50">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 
           {/* CABEÇALHO */}
@@ -476,6 +476,11 @@ export default function ConfiguracoesPage() {
           {mensagem && (
             <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
               ✓ {mensagem}
+            </div>
+          )}
+          {erroCarregamento && (
+            <div role="alert" className="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
+              Não foi possível carregar as configurações: {erroCarregamento}
             </div>
           )}
 
@@ -559,13 +564,13 @@ export default function ConfiguracoesPage() {
               </p>
             </div>
 
-            <div className="grid gap-5 p-6 md:grid-cols-2 lg:grid-cols-4">
-              <div>
+            <div className="grid min-w-0 gap-5 p-4 sm:p-6 md:grid-cols-2 lg:grid-cols-4">
+              <div className="min-w-0">
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   CEP
                 </label>
 
-                <div className="flex gap-2">
+                <div className="flex min-w-0 gap-2">
                   <input
                     value={config.cep}
                     onChange={(e) =>
@@ -583,7 +588,7 @@ export default function ConfiguracoesPage() {
                     type="button"
                     onClick={buscarCep}
                     disabled={buscandoCep}
-                    className="rounded-xl bg-slate-100 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-60"
+                    className="shrink-0 rounded-xl bg-slate-100 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-60"
                   >
                     {buscandoCep ? "..." : "Buscar"}
                   </button>

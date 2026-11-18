@@ -653,7 +653,7 @@ export default function RelatoriosPage() {
 
     const maior = Math.max(1, ...valores.map(x => x[1]));
 
-    return <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+    return <div className="min-w-0 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
 
       <h2 className="text-lg font-bold">{titulo}</h2>
 
